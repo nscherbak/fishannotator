@@ -9,7 +9,8 @@ It is designed for pen-on-tablet use (Apple Pencil, S-Pen, etc.) as well as mous
 ## What it does
 
 - Draw outlines for the standard FishInspector features: **body contour, eye, notochord, pericard, mouth tip, otolith, placode, swim bladder, yolk sac**.
-- **Edit** existing masks with a push-brush that nudges a contour into place (loaded from an existing `__SHAPES.json`).
+- **Edit** existing masks with a push-brush that shoves a contour into place, and **erase** parts of an outline with a brush (masks loaded from an existing `__SHAPES.json`).
+- Adjust on-screen **brightness/contrast** to see faint edges (view only — the image file is never changed).
 - Export one `<image>__SHAPES.json` per image, ready for analysis in FishInspector.
 
 ### Tools
@@ -17,11 +18,13 @@ It is designed for pen-on-tablet use (Apple Pencil, S-Pen, etc.) as well as mous
 | Tool | Purpose |
 |------|---------|
 | **Draw** | Trace a feature's outline (one outline per feature; drawing again replaces it). |
-| **Edit** | Push an existing outline with a circular brush — the line is pushed away from the brush; brush size is adjustable (1/100–1/3 of image height). |
-| **Erase** | Remove a feature's outline. |
+| **Edit** | Push an existing outline into place with a circular brush — the line is shoved out of the circle, away from the brush. Push from one side to move it that way; the other side to push it back. Brush size adjustable (1/100–1/3 of image height). |
+| **Erase** | A brush that removes only the parts of the *active* feature's outline it touches (size set by the Brush slider). |
+| **Clear** | Remove the whole active feature's outline at once. |
 | **Pan / pinch** | One finger pans, two fingers zoom; the pen always draws. |
 | **All features** | Review mode: shows every outline at once (editing paused). |
 | **Feature tiles** | Pick the active feature. A red dot = not annotated, green dot = annotated. |
+| **Image view** | Brightness / Contrast sliders adjust the on-screen view only — the image file is not changed. |
 | **Save active JSON** | Writes `<image>__SHAPES.json`. An "Unsaved JSON" flag shows pending changes. |
 
 Work autosaves in the browser (IndexedDB) so annotations survive an accidental reload. A built-in **Help** panel explains everything, including device-specific file handling.

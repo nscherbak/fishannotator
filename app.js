@@ -56,6 +56,9 @@
   var saveStatus = document.getElementById("saveStatus");
   var exportBtn = document.getElementById("exportBtn");
   var editSize = document.getElementById("editSize");
+  var brightnessInput = document.getElementById("brightness");
+  var contrastInput = document.getElementById("contrast");
+  var viewReset = document.getElementById("viewReset");
   var undoBtn = document.getElementById("undoBtn");
   var clearFeatureBtn = document.getElementById("clearFeatureBtn");
   var fitBtn = document.getElementById("fitBtn");
@@ -75,7 +78,9 @@
     offsetX: 0,
     offsetY: 0,
     currentStroke: null,
-    editFraction: 0.08,    // push-brush diameter as fraction of image height
+    editFraction: 0.08,    // push/erase brush diameter as fraction of image height
+    brightness: 100,       // view-only image adjustments (percent)
+    contrast: 100,
     history: [],
     cursor: null,
     pointers: new Map(),   // pointerId -> { x, y, type }
@@ -201,6 +206,7 @@
     emptyState.style.display = item ? "none" : "flex";
     imageName.textContent = item ? item.name : "No image loaded";
     activeImageName.textContent = item ? item.name : "None";
+    activeImageName.title = item ? item.name : "";
     activeImageSize.textContent = item && item.width ? item.width + " x " + item.height + " px" : (item ? "decoding..." : "");
 
     if (!item) { updateReadout(); return; }
@@ -210,6 +216,10 @@
       ctx.translate(state.offsetX, state.offsetY);
       ctx.scale(state.scale, state.scale);
       ctx.imageSmoothingEnabled = state.scale < 3;
+      // view-only brightness/contrast; restored so outlines aren't affected
+      if (state.brightness !== 100 || state.contrast !== 100) {
+        ctx.filter = "brightness(" + state.brightness + "%) contrast(" + state.contrast + "%)";
+      }
       ctx.drawImage(item.element, 0, 0);
       ctx.restore();
     } else {
@@ -231,13 +241,13 @@
         drawShape({ type: "polyline", color: activeFeature().color, points: state.currentStroke }, true);
       }
     }
-    if (state.tool === "edit" && !state.showAll && state.cursor && hasPixels) {
+    if ((state.tool === "edit" || state.tool === "erase") && !state.showAll && state.cursor && hasPixels) {
       var center = imageToScreen(state.cursor);
       ctx.save();
       ctx.beginPath();
       ctx.arc(center.x, center.y, editRadiusImg() * state.scale, 0, Math.PI * 2);
       ctx.lineWidth = 1.5;
-      ctx.strokeStyle = activeFeature().color;
+      ctx.strokeStyle = state.tool === "erase" ? "#e0483b" : activeFeature().color;
       ctx.globalAlpha = 0.9;
       ctx.stroke();
       ctx.restore();
@@ -304,6 +314,7 @@
       var label = document.createElement("span");
       label.className = "item-label";
       label.textContent = item.name;
+      label.title = item.name;
       var count = document.createElement("span");
       count.className = "item-count";
       count.textContent = annotated ? annotated + "\u2009\u25CF" : "";
@@ -427,23 +438,25 @@
     markDirty(item);
   }
 
-  function eraseAt(clientX, clientY) {
+  // Erase brush: delete points of the ACTIVE feature that fall inside the brush.
+  function eraseBrush(e) {
     var item = activeImage();
-    if (!item) return;
-    var point = screenToImage(clientX, clientY);
-    var threshold = 12 / state.scale;
-    for (var i = item.shapes.length - 1; i >= 0; i -= 1) {
-      var shape = item.shapes[i];
-      if (shape.points.some(function (sp) { return distance(point, sp) <= threshold; })) {
-        var removed = item.shapes.splice(i, 1)[0];
-        pushHistory({ kind: "remove", imageId: item.id, shape: removed, index: i });
-        renderLists();
-        draw();
-        scheduleAutosave(item);
-        markDirty(item);
-        return;
-      }
+    if (!item || !state.action) return;
+    var shape = item.shapes.find(function (s) { return s.id === state.action.shapeId; });
+    if (!shape) return;
+    var radius = editRadiusImg();
+    var events = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
+    if (!events.length) events = [e];
+    var changed = false;
+    for (var k = 0; k < events.length; k += 1) {
+      var c = screenToImage(events[k].clientX, events[k].clientY);
+      var before = shape.points.length;
+      shape.points = shape.points.filter(function (p) {
+        return Math.sqrt((p.x - c.x) * (p.x - c.x) + (p.y - c.y) * (p.y - c.y)) >= radius;
+      });
+      if (shape.points.length !== before) changed = true;
     }
+    if (changed) draw();
   }
 
   function undo() {
@@ -1217,7 +1230,10 @@
     document.querySelectorAll("[data-tool]").forEach(function (button) {
       button.classList.toggle("active", button.dataset.tool === tool);
     });
-    if (appShell) appShell.classList.toggle("tool-edit", tool === "edit");
+    if (appShell) {
+      appShell.classList.toggle("tool-edit", tool === "edit");
+      appShell.classList.toggle("tool-erase", tool === "erase");
+    }
     updateCanvasCursor();
     draw();   // refresh the push-brush circle on/off
   }
@@ -1338,7 +1354,7 @@
   function updateCursor(clientX, clientY) {
     if (!activeImage()) { state.cursor = null; return; }
     state.cursor = screenToImage(clientX, clientY);
-    if (state.tool === "edit" && !state.showAll) draw(); else updateReadout();
+    if ((state.tool === "edit" || state.tool === "erase") && !state.showAll) draw(); else updateReadout();
   }
 
   canvas.addEventListener("pointerdown", function (e) {
@@ -1370,8 +1386,14 @@
       return;
     }
     if (state.tool === "erase") {
-      state.action = { pointerId: e.pointerId, kind: kind, type: "erase" };
-      eraseAt(e.clientX, e.clientY);
+      var eraseTarget = activeFeatureShape();
+      if (!eraseTarget) { setLoadStatus("Nothing to erase for " + activeFeature().label + ".", false); return; }
+      state.action = {
+        pointerId: e.pointerId, kind: kind, type: "erase",
+        shapeId: eraseTarget.id,
+        before: eraseTarget.points.map(function (p) { return { x: p.x, y: p.y }; })
+      };
+      eraseBrush(e);
       return;
     }
     if (state.tool === "edit") {
@@ -1412,7 +1434,7 @@
         state.action.lastY = e.clientY;
         draw();
       } else if (state.action.type === "erase") {
-        eraseAt(e.clientX, e.clientY);
+        eraseBrush(e);
       } else if (state.action.type === "edit") {
         pushBrush(e);
       } else if (state.action.type === "draw" && state.currentStroke) {
@@ -1435,12 +1457,12 @@
     if (state.touchPan && e.pointerId === state.touchPan.pointerId) state.touchPan = null;
     if (state.action && e.pointerId === state.action.pointerId) {
       if (state.action.type === "draw" && state.currentStroke) addShape(state.currentStroke);
-      if (state.action.type === "edit") {
+      if (state.action.type === "edit" || state.action.type === "erase") {
         var item = activeImage();
         var shape = item && item.shapes.find(function (s) { return s.id === state.action.shapeId; });
         if (shape) {
-          // one gentle pass to soften where the wrapped arc meets the straight line
-          if (state.action.last) smoothRegion(shape, state.action.last, editRadiusImg() * 1.3, 0.35, 1);
+          // edit only: soften where the wrapped arc meets the straight line
+          if (state.action.type === "edit" && state.action.last) smoothRegion(shape, state.action.last, editRadiusImg() * 1.3, 0.35, 1);
           pushHistory({ kind: "editPoints", imageId: item.id, shapeId: shape.id, before: state.action.before });
           renderLists();
           scheduleAutosave(item);
@@ -1455,12 +1477,12 @@
     // On pen/touch there is no hover, so drop the brush circle when lifted.
     if (e.pointerType === "touch" || e.pointerType === "pen") { state.cursor = null; }
     try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
-    if (state.tool === "edit") draw();
+    if (state.tool === "edit" || state.tool === "erase") draw();
   }
   canvas.addEventListener("pointerup", endPointer);
   canvas.addEventListener("pointercancel", endPointer);
   canvas.addEventListener("pointerleave", function () {
-    if (state.tool === "edit" && state.cursor) { state.cursor = null; draw(); }
+    if ((state.tool === "edit" || state.tool === "erase") && state.cursor) { state.cursor = null; draw(); }
   });
 
   canvas.addEventListener("wheel", function (e) {
@@ -1490,6 +1512,18 @@
   exportBtn.addEventListener("click", downloadExport);
   if (editSize) editSize.addEventListener("input", function () {
     state.editFraction = Math.min(1 / 3, Math.max(0.01, Number(editSize.value) / 100));
+    draw();
+  });
+  if (brightnessInput) brightnessInput.addEventListener("input", function () {
+    state.brightness = Number(brightnessInput.value); draw();
+  });
+  if (contrastInput) contrastInput.addEventListener("input", function () {
+    state.contrast = Number(contrastInput.value); draw();
+  });
+  if (viewReset) viewReset.addEventListener("click", function () {
+    state.brightness = 100; state.contrast = 100;
+    if (brightnessInput) brightnessInput.value = 100;
+    if (contrastInput) contrastInput.value = 100;
     draw();
   });
   if (sidebarToggle) sidebarToggle.addEventListener("click", function () {

@@ -66,6 +66,13 @@
         <input id="folderInput" type="file" hidden accept="image/jpeg,.jpg,.jpeg,.png,image/*,.tif,.tiff,.json,application/json" multiple webkitdirectory directory>
       </section>
 
+      <section class="panel">
+        <div class="panel-title">Image view <button id="viewReset" class="mini-reset" type="button">reset</button></div>
+        <label class="view-slider"><span>Brightness</span><input id="brightness" type="range" min="40" max="160" step="1" value="100"></label>
+        <label class="view-slider"><span>Contrast</span><input id="contrast" type="range" min="40" max="160" step="1" value="100"></label>
+        <div class="view-hint">Display only &mdash; the image file is not changed.</div>
+      </section>
+
       <section class="panel grow">
         <div class="panel-title">Queue</div>
         <div id="imageList" class="image-list"></div>
@@ -150,9 +157,10 @@
           <h3>4 &middot; The tools</h3>
           <ul>
             <li><strong>Draw</strong> &mdash; trace a feature&rsquo;s outline with the pen. One outline per feature; drawing again replaces it.</li>
-            <li><strong>Edit</strong> &mdash; push an existing outline to fix its position. A circle follows the pen; drag to push that part of the line in the direction you move. The <strong>Brush</strong> slider sets the circle size (1/100&ndash;1/3 of image height). The line stays smoothly curved.</li>
-            <li><strong>Erase</strong> &mdash; tap an outline to remove that feature&rsquo;s line.</li>
+            <li><strong>Edit</strong> &mdash; push an existing outline into place. A circle (the <strong>Brush</strong>) follows the pen and shoves the line <em>out of the circle, away from the brush</em> &mdash; like a disc pushing a string. Push from one side to move the line that way; approach from the <em>other</em> side to push it back. The Brush slider (1/100&ndash;1/3 of image height) sets how much of the line moves at once. On a computer the circle follows the mouse so you can see where it will act, and it pushes only while a button is held; with a pen it acts only while the pen touches the screen.</li>
+            <li><strong>Erase</strong> &mdash; a brush (size set by the <strong>Brush</strong> slider) that removes only the parts of the <em>active</em> feature&rsquo;s outline it touches. Use <strong>Clear</strong> to remove a whole feature at once.</li>
             <li><strong>Pan / zoom</strong> &mdash; one finger pans, two fingers pinch to zoom; the pen always draws. Also Fit, &minus;, 100%, +.</li>
+            <li><strong>Image view (Brightness / Contrast)</strong> &mdash; sliders in the sidebar adjust how the image looks on screen so you can see faint edges. They do <em>not</em> change the image file. Tap <em>reset</em> to return to normal.</li>
             <li><strong>All features</strong> &mdash; shows every outline at once for review (editing paused). Tap a feature to resume editing it.</li>
             <li><strong>Feature tiles</strong> &mdash; choose the feature you&rsquo;re working on. The dot is <span class="help-dot red"></span> <strong>red</strong> when a feature has no outline and <span class="help-dot green"></span> <strong>green</strong> once it does &mdash; a quick check that nothing is missing.</li>
             <li><strong>Undo</strong>, <strong>Clear</strong> (removes the current feature&rsquo;s outline), and <strong>Save active JSON</strong>. <strong>Unsaved JSON</strong> shows in yellow when you have changes not yet saved.</li>
