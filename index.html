@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Fish Annotator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="appShell" class="app-shell">
+
+    <header class="topbar">
+      <div class="topbar-brand">
+        <button id="sidebarToggle" class="drawer-toggle" type="button" aria-label="Toggle images panel">&#9776;</button>
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-text">
+            <span class="brand-name">Fish Annotator</span>
+            <span class="brand-by">by Nikolai Scherbak, &Ouml;rebro University</span>
+          </span>
+        </div>
+      </div>
+      <div class="topbar-work">
+        <div class="tool-cluster">
+          <div class="seg" role="group" aria-label="Tools">
+            <button class="tool-button active" type="button" data-tool="draw">Draw</button>
+            <button class="tool-button" type="button" data-tool="edit">Edit</button>
+            <button class="tool-button" type="button" data-tool="erase">Erase</button>
+            <button class="tool-button" type="button" data-tool="pan">Pan</button>
+          </div>
+          <label class="edit-size" title="Push-brush diameter (% of image height)">
+            <span>Brush</span>
+            <input id="editSize" type="range" min="1" max="33" step="1" value="8">
+          </label>
+          <button id="undoBtn" class="tool-button" type="button">Undo</button>
+          <button id="clearFeatureBtn" class="tool-button" type="button">Clear</button>
+          <div class="seg" role="group" aria-label="Zoom">
+            <button id="zoomOutBtn" class="tool-button" type="button" aria-label="Zoom out">&minus;</button>
+            <button id="zoom100Btn" class="tool-button" type="button">100%</button>
+            <button id="zoomInBtn" class="tool-button" type="button" aria-label="Zoom in">+</button>
+            <button id="fitBtn" class="tool-button" type="button">Fit</button>
+          </div>
+        </div>
+        <div class="readout">
+          <span class="readout-item"><label>Feature</label><strong id="activeFeatureName">&mdash;</strong></span>
+          <span class="readout-item"><label>Zoom</label><strong id="zoomLevel">100%</strong></span>
+          <span class="readout-item mono"><label>x, y</label><strong id="cursorCoord">&nbsp;&nbsp;--,&nbsp;&nbsp;&nbsp;--</strong></span>
+        </div>
+        <button id="helpBtn" class="help-button" type="button" aria-label="Help">? Help</button>
+      </div>
+    </header>
+
+    <aside class="sidebar">
+      <section class="panel">
+        <div class="panel-title">Images</div>
+        <button id="loadImagesBtn" class="file-button" type="button">Load images + JSON</button>
+        <button id="loadFolderBtn" class="file-button ghost wide" type="button">Load folder</button>
+        <div id="loadStatus" class="load-status">Select images together with their __SHAPES.json files, or load a whole folder.</div>
+        <div id="loadDetails" class="load-details"></div>
+        <div class="active-field">
+          <span class="field-label">Selected</span>
+          <strong id="activeImageName">None</strong>
+          <span id="activeImageSize"></span>
+        </div>
+        <input id="imageInput" type="file" hidden accept="image/jpeg,.jpg,.jpeg,image/png,.png,image/*,.bmp,.gif,.webp,.tif,.tiff,.json,application/json" multiple>
+        <input id="folderInput" type="file" hidden accept="image/jpeg,.jpg,.jpeg,.png,image/*,.tif,.tiff,.json,application/json" multiple webkitdirectory directory>
+      </section>
+
+      <section class="panel grow">
+        <div class="panel-title">Queue</div>
+        <div id="imageList" class="image-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">Save</div>
+        <div id="saveStatus" class="save-status">Autosave on</div>
+        <button id="exportBtn" class="primary-button" type="button">Save active JSON</button>
+      </section>
+    </aside>
+
+    <main id="dropZone" class="canvas-wrap">
+      <canvas id="canvas"></canvas>
+      <div id="emptyState" class="empty-state">
+        <strong>Load fish images to begin</strong>
+        <span>Pen draws &middot; one finger pans &middot; two fingers pinch to zoom. Select images together with their <strong>__SHAPES.json</strong> files to load existing annotations.</span>
+      </div>
+      <div class="canvas-tag"><span id="imageName">No image loaded</span></div>
+      <div id="unsavedBadge" class="unsaved-badge">Unsaved JSON</div>
+      <div id="reviewBadge" class="review-badge">All features &middot; view only &mdash; editing paused</div>
+    </main>
+
+    <footer class="feature-rail">
+      <button id="allFeaturesBtn" class="feature-tile all-tile" type="button" aria-pressed="false">
+        <span class="tile-name">All features</span>
+        <span class="tile-sub">view only</span>
+      </button>
+      <div id="featureList" class="feature-list"></div>
+    </footer>
+
+  </div>
+
+  <div id="helpModal" class="help-modal" hidden>
+    <div class="help-backdrop" id="helpBackdrop"></div>
+    <div class="help-card" role="dialog" aria-modal="true" aria-label="Fish Annotator help">
+      <div class="help-head">
+        <h2>Fish Annotator &mdash; Help</h2>
+        <button id="helpClose" class="help-close" type="button" aria-label="Close help">&times;</button>
+      </div>
+      <div class="help-body">
+
+        <section>
+          <h3>What it is for</h3>
+          <p>Fish Annotator lets you draw and adjust outlines (&ldquo;masks&rdquo;) of anatomical features on zebrafish images &mdash; body contour, eye, notochord, and so on. It saves them as a FishInspector <code>__SHAPES.json</code> file for analysis in <strong>FishInspector</strong>. Use it two ways: annotate an image from scratch, or load an existing mask and correct it.</p>
+        </section>
+
+        <section>
+          <h3>1 &middot; Prepare images: TIFF &rarr; JPG</h3>
+          <p>Microscopes usually save <strong>TIFF</strong>. Fish Annotator runs fastest on <strong>JPG</strong>, so convert first:</p>
+          <ul>
+            <li>Save as JPG at <strong>90% quality or higher</strong>.</li>
+            <li>Keep the <strong>exact same pixel size</strong> as the original &mdash; essential, because the annotation coordinates must line up with the original for FishInspector.</li>
+            <li>Keep your original TIFFs; the JPG is only for annotating.</li>
+          </ul>
+          <p>Conversion runs on a computer &mdash; see <em>Converting TIFF &rarr; JPG</em> below.</p>
+        </section>
+
+        <section>
+          <h3>2 &middot; Keep each image and its JSON together</h3>
+          <p>Put each image and its annotation file <code>&lt;image name&gt;__SHAPES.json</code> in the <strong>same folder</strong>. When you open them together, Fish Annotator pairs them automatically by name and shows the existing outlines. The matching is tolerant of spaces, underscores, and <code>.ome</code>/<code>.tif</code> differences.</p>
+        </section>
+
+        <section>
+          <h3>3 &middot; Open &amp; save &mdash; by device</h3>
+          <p>Open with <strong>Load images + JSON</strong> (select the image and its JSON in one dialog) or <strong>Load folder</strong> (loads every image + JSON in a folder, where supported). <strong>Save active JSON</strong> writes <code>&lt;image&gt;__SHAPES.json</code>.</p>
+          <p class="help-note">On most devices the saved file lands in <strong>Downloads</strong> &mdash; the app cannot write back into a cloud folder &mdash; so you then move it into your image folder. (Exception: Android Chrome / desktop can save into a chosen folder.)</p>
+          <table class="help-table">
+            <thead><tr><th>Device</th><th>Opening</th><th>Folder load</th><th>Saving</th></tr></thead>
+            <tbody>
+              <tr><td><strong>iPad (iPadOS)</strong></td><td>Install Google Drive &rarr; it appears in Files; pick image + JSON from there (mark folder &ldquo;available offline&rdquo; first)</td><td>Not available &mdash; select files instead</td><td>&rarr; Downloads, then move to your folder</td></tr>
+              <tr><td><strong>Android</strong> (Samsung, Lenovo, Xiaomi&hellip;)</td><td>Load images + JSON from Drive or local</td><td>Yes in Chrome &mdash; point at an offline-synced folder</td><td>&rarr; Downloads (or a chosen folder in Chrome)</td></tr>
+              <tr><td><strong>Fire OS</strong> (Amazon Fire)</td><td>Use a Chrome-based browser; pick from Drive or local</td><td>Varies</td><td>&rarr; Downloads</td></tr>
+              <tr><td><strong>Windows</strong> (Surface&hellip;)</td><td>Full support</td><td>Yes</td><td>Save to a chosen folder or Downloads</td></tr>
+              <tr><td><strong>ChromeOS</strong> (Chromebook)</td><td>Full support; Drive in Files app</td><td>Yes</td><td>Save to a chosen folder or Downloads</td></tr>
+            </tbody>
+          </table>
+          <p><strong>Using Google Drive</strong> (or OneDrive / iCloud / Dropbox): install the cloud app so it appears in your device&rsquo;s file picker, keep one folder per screening batch, and make it <em>available offline</em> before a session. You open images from there; saved JSONs return through Downloads and you copy them back into the folder.</p>
+        </section>
+
+        <section>
+          <h3>4 &middot; The tools</h3>
+          <ul>
+            <li><strong>Draw</strong> &mdash; trace a feature&rsquo;s outline with the pen. One outline per feature; drawing again replaces it.</li>
+            <li><strong>Edit</strong> &mdash; push an existing outline to fix its position. A circle follows the pen; drag to push that part of the line in the direction you move. The <strong>Brush</strong> slider sets the circle size (1/100&ndash;1/3 of image height). The line stays smoothly curved.</li>
+            <li><strong>Erase</strong> &mdash; tap an outline to remove that feature&rsquo;s line.</li>
+            <li><strong>Pan / zoom</strong> &mdash; one finger pans, two fingers pinch to zoom; the pen always draws. Also Fit, &minus;, 100%, +.</li>
+            <li><strong>All features</strong> &mdash; shows every outline at once for review (editing paused). Tap a feature to resume editing it.</li>
+            <li><strong>Feature tiles</strong> &mdash; choose the feature you&rsquo;re working on. The dot is <span class="help-dot red"></span> <strong>red</strong> when a feature has no outline and <span class="help-dot green"></span> <strong>green</strong> once it does &mdash; a quick check that nothing is missing.</li>
+            <li><strong>Undo</strong>, <strong>Clear</strong> (removes the current feature&rsquo;s outline), and <strong>Save active JSON</strong>. <strong>Unsaved JSON</strong> shows in yellow when you have changes not yet saved.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h3>5 &middot; Typical workflow</h3>
+          <p>Load the image (and its JSON if it exists) &rarr; pick a feature &rarr; trace it, or use <strong>Edit</strong> to adjust &rarr; check every dot is green &rarr; <strong>Save active JSON</strong> &rarr; move the JSON into the folder with the original TIFF &rarr; open in <strong>FishInspector</strong> for analysis.</p>
+        </section>
+
+        <section>
+          <h3>Converting TIFF &rarr; JPG (on a computer)</h3>
+          <p>Do this on a <strong>PC/Mac</strong>, not the tablet. It keeps the JPG&rsquo;s pixel dimensions <strong>identical</strong> to the TIFF (required for FishInspector). The drawing tool itself needs <em>no</em> installation &mdash; just open <code>index.html</code> in a browser. There is no in-page converter yet; use the <code>convert_to_jpg.py</code> script:</p>
+          <ol>
+            <li>Install <strong>Python 3</strong> from python.org. On Windows, tick <em>&ldquo;Add Python to PATH&rdquo;</em> during setup.</li>
+            <li>Open a terminal / Command Prompt and install the libraries:<br><code>pip install pillow tifffile numpy</code></li>
+            <li>Run the converter:<br><code>python convert_to_jpg.py INPUT_FOLDER OUTPUT_FOLDER</code></li>
+          </ol>
+          <p>Defaults: JPG quality 90, grayscale, same pixel size. That is the entire setup.</p>
+        </section>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
