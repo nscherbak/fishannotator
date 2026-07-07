@@ -59,6 +59,8 @@
   var brightnessInput = document.getElementById("brightness");
   var contrastInput = document.getElementById("contrast");
   var viewReset = document.getElementById("viewReset");
+  var joinEndsBtn = document.getElementById("joinEndsBtn");
+  var flipBtn = document.getElementById("flipBtn");
   var undoBtn = document.getElementById("undoBtn");
   var clearFeatureBtn = document.getElementById("clearFeatureBtn");
   var fitBtn = document.getElementById("fitBtn");
@@ -178,6 +180,19 @@
   function imageToScreen(point) {
     return { x: point.x * state.scale + state.offsetX, y: point.y * state.scale + state.offsetY };
   }
+  // Keep annotations on the image: clamp a point to the image rectangle, and
+  // test whether a point is within the image (with a small tolerance).
+  function clampToImage(p) {
+    var it = activeImage();
+    if (!it || !it.width) return p;
+    return { x: Math.min(it.width, Math.max(0, p.x)), y: Math.min(it.height, Math.max(0, p.y)) };
+  }
+  function pointInImage(p, tolImg) {
+    var it = activeImage();
+    if (!it || !it.width) return false;
+    var t = tolImg || 0;
+    return p.x >= -t && p.y >= -t && p.x <= it.width + t && p.y <= it.height + t;
+  }
   function zoomAbout(factor, clientX, clientY) {
     var rect = canvas.getBoundingClientRect();
     var before = screenToImage(clientX, clientY);
@@ -205,9 +220,8 @@
     var hasPixels = item && item.element && item.width;
     emptyState.style.display = item ? "none" : "flex";
     imageName.textContent = item ? item.name : "No image loaded";
-    activeImageName.textContent = item ? item.name : "None";
-    activeImageName.title = item ? item.name : "";
-    activeImageSize.textContent = item && item.width ? item.width + " x " + item.height + " px" : (item ? "decoding..." : "");
+    if (activeImageName) { activeImageName.textContent = item ? item.name : "None"; activeImageName.title = item ? item.name : ""; }
+    if (activeImageSize) activeImageSize.textContent = item && item.width ? item.width + " x " + item.height + " px" : (item ? "decoding..." : "");
 
     if (!item) { updateReadout(); return; }
 
@@ -241,7 +255,7 @@
         drawShape({ type: "polyline", color: activeFeature().color, points: state.currentStroke }, true);
       }
     }
-    if ((state.tool === "edit" || state.tool === "erase") && !state.showAll && state.cursor && hasPixels) {
+    if ((state.tool === "edit" || state.tool === "erase") && !state.showAll && state.cursor && hasPixels && pointInImage(state.cursor, 6 / state.scale)) {
       var center = imageToScreen(state.cursor);
       ctx.save();
       ctx.beginPath();
@@ -270,13 +284,14 @@
       if (index === 0) ctx.moveTo(screen.x, screen.y);
       else ctx.lineTo(screen.x, screen.y);
     });
+    if (shape.closed) ctx.closePath();
     ctx.stroke();
-    // endpoint handles help judge where a contour begins/ends
-    if (shape.points.length > 1 && !isPreview) {
+    // free-end handles: only for OPEN arcs, to show where the gap is
+    if (shape.points.length > 1 && !isPreview && !shape.closed) {
       [shape.points[0], shape.points[shape.points.length - 1]].forEach(function (point) {
         var screen = imageToScreen(point);
         ctx.beginPath();
-        ctx.arc(screen.x, screen.y, 3, 0, Math.PI * 2);
+        ctx.arc(screen.x, screen.y, 4, 0, Math.PI * 2);
         ctx.fill();
       });
     }
@@ -293,7 +308,76 @@
     }
   }
 
-  function renderLists() { renderImages(); renderFeatures(); }
+  function renderLists() { renderImages(); renderFeatures(); updateFlipButton(); }
+
+  // ---- vertical flip (only before annotating; overwrites where allowed) -----
+
+  function featureTotalPoints(item) {
+    return item.shapes.reduce(function (n, s) { return n + s.points.length; }, 0);
+  }
+  function canFlip(item) {
+    return !!(item && item.width && !item.hadJson && featureTotalPoints(item) === 0);
+  }
+  function updateFlipButton() {
+    if (!flipBtn) return;
+    var item = activeImage();
+    var ok = canFlip(item);
+    flipBtn.disabled = !ok;
+    flipBtn.title = ok
+      ? "Flip image vertically and save (do this before annotating)"
+      : item && (item.hadJson || featureTotalPoints(item) > 0)
+        ? "Flip is only available before annotating \u2014 this image already has annotations or a JSON"
+        : "Load an image to flip";
+  }
+  async function tryOverwriteFile(item, blob) {
+    var h = item.fileHandle;
+    if (!h || !h.createWritable) return false;
+    try {
+      if (h.queryPermission) {
+        var q = await h.queryPermission({ mode: "readwrite" });
+        if (q !== "granted" && h.requestPermission) q = await h.requestPermission({ mode: "readwrite" });
+        if (q !== "granted") return false;
+      }
+      var ws = await h.createWritable();
+      await ws.write(blob);
+      await ws.close();
+      return true;
+    } catch (e) { return false; }
+  }
+  async function flipActiveImage() {
+    var item = activeImage();
+    if (!canFlip(item)) return;
+    if (!item.element) { setLoadStatus("Image still decoding \u2014 try again in a moment.", true); return; }
+    var w = item.width, h = item.height;
+    var cv = document.createElement("canvas");
+    cv.width = w; cv.height = h;
+    var cx = cv.getContext("2d");
+    cx.save(); cx.translate(0, h); cx.scale(1, -1); cx.drawImage(item.element, 0, 0, w, h); cx.restore();
+    var blob = await new Promise(function (res) { cv.toBlob(res, "image/jpeg", 0.95); });
+    if (!blob) { setLoadStatus("Could not create the flipped image.", true); return; }
+    // Replace the in-memory file with the flipped bytes: the original File handle
+    // goes stale once we overwrite the file on disk, so re-decoding (after the
+    // decode cache evicts this image) must use the flipped bytes, not the disk file.
+    item.file = new File([blob], item.name, { type: "image/jpeg" });
+    var url = URL.createObjectURL(blob);
+    await new Promise(function (res) {
+      var img = new Image();
+      img.onload = function () {
+        if (item.objectUrl) { try { URL.revokeObjectURL(item.objectUrl); } catch (_) {} }
+        item.element = img; item.objectUrl = url; item._gray = null;
+        if (state.decodeOrder.indexOf(item.id) === -1) state.decodeOrder.push(item.id);
+        evictDecoded();
+        res();
+      };
+      img.onerror = function () { res(); };
+      img.src = url;
+    });
+    draw();
+    var wrote = await tryOverwriteFile(item, blob);
+    if (wrote) setLoadStatus("Flipped and saved \u201c" + item.name + "\u201d in place.", false);
+    else { triggerDownload(blob, imageBasename(item.name) + ".jpg"); setLoadStatus("Flipped image downloaded \u2014 replace the original with it (in-place save isn\u2019t available on this device or way of opening).", false); }
+    renderLists();
+  }
 
   function renderImages() {
     imageList.innerHTML = "";
@@ -305,37 +389,80 @@
       return;
     }
     state.images.forEach(function (item) {
-      var annotated = item.shapes.length;
+      var nFeat = features.filter(function (f) {
+        return featureArcs(item, f.id).some(function (a) { return a.points.length; });
+      }).length;
+      var isActive = item.id === state.activeImageId;
       var button = document.createElement("button");
-      button.className = "image-item" + (item.id === state.activeImageId ? " active" : "");
+      button.className = "image-item" + (isActive ? " active" : "");
       button.type = "button";
       var dot = document.createElement("span");
-      dot.className = "state-dot" + (annotated ? " done" : "");
+      dot.className = "state-dot" + (isActive ? " done" : "");   // green = image being edited
+      dot.title = isActive ? "Currently editing" : "";
       var label = document.createElement("span");
       label.className = "item-label";
       label.textContent = item.name;
       label.title = item.name;
       var count = document.createElement("span");
       count.className = "item-count";
-      count.textContent = annotated ? annotated + "\u2009\u25CF" : "";
+      count.textContent = nFeat + "/" + features.length + (item.dirty ? " \u2022" : "");
+      count.title = nFeat + " of " + features.length + " features annotated" + (item.dirty ? " \u2014 unsaved" : "");
       button.appendChild(dot);
       button.appendChild(label);
       button.appendChild(count);
-      button.addEventListener("click", function () { activateImage(item.id); });
+      button.addEventListener("click", function () { requestActivateImage(item.id); });
       imageList.appendChild(button);
     });
+  }
+
+  // Switching image warns if the current one has unsaved JSON changes.
+  function requestActivateImage(id) {
+    if (id === state.activeImageId) return;
+    var cur = activeImage();
+    if (cur && cur.dirty) {
+      showSaveDialog(cur,
+        function () { if (downloadExport()) activateImage(id); },  // Save & continue
+        function () { activateImage(id); });                        // Continue without saving
+      return;
+    }
+    activateImage(id);
+  }
+
+  function showSaveDialog(item, onSave, onDiscard) {
+    var overlay = document.createElement("div");
+    overlay.className = "confirm-modal";
+    var card = document.createElement("div");
+    card.className = "confirm-card";
+    var msg = document.createElement("div");
+    msg.className = "confirm-msg";
+    var strong = document.createElement("strong");
+    strong.textContent = "Unsaved changes";
+    var p = document.createElement("p");
+    p.textContent = "You haven\u2019t saved the JSON for \u201c" + item.name + "\u201d. Save it before switching so your work isn\u2019t lost?";
+    msg.appendChild(strong); msg.appendChild(p);
+    var actions = document.createElement("div");
+    actions.className = "confirm-actions";
+    function mk(text, cls) { var b = document.createElement("button"); b.type = "button"; b.className = "confirm-btn " + cls; b.textContent = text; return b; }
+    var bCancel = mk("Cancel", "ghost");
+    var bDiscard = mk("Continue without saving", "");
+    var bSave = mk("Save & continue", "primary");
+    function close() { overlay.remove(); }
+    bCancel.addEventListener("click", close);
+    bDiscard.addEventListener("click", function () { close(); onDiscard(); });
+    bSave.addEventListener("click", function () { close(); onSave(); });
+    overlay.addEventListener("click", function (e) { if (e.target === overlay) close(); });
+    actions.appendChild(bCancel); actions.appendChild(bDiscard); actions.appendChild(bSave);
+    card.appendChild(msg); card.appendChild(actions);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
   }
 
   function renderFeatures() {
     featureList.innerHTML = "";
     var item = activeImage();
     features.forEach(function (feature) {
-      var count = 0;
-      if (item) {
-        for (var i = 0; i < item.shapes.length; i += 1) {
-          if (item.shapes[i].feature === feature.id) count = item.shapes[i].points.length;
-        }
-      }
+      var count = item ? featurePointCount(item, feature.id) : 0;
+      var status = item ? featureStatus(item, feature.id) : "empty";
       var tile = document.createElement("button");
       tile.className = "feature-tile" + (!state.showAll && feature.id === state.activeFeatureId ? " active" : "");
       tile.type = "button";
@@ -345,19 +472,19 @@
       name.className = "tile-name";
       name.textContent = feature.label;
 
-      var status = document.createElement("span");
-      status.className = "tile-status";
+      var statusEl = document.createElement("span");
+      statusEl.className = "tile-status";
       var dot = document.createElement("span");
-      dot.className = "status-dot " + (count ? "done" : "missing");
-      dot.title = count ? "Annotated" : "Not annotated";
+      dot.className = "status-dot " + (status === "done" ? "done" : status === "open" ? "warn" : "missing");
+      dot.title = status === "done" ? "Annotated" : status === "open" ? "Open contour \u2014 connect the ends" : "Not annotated";
       var cnt = document.createElement("span");
       cnt.className = "tile-count";
-      cnt.textContent = count ? count + " pts" : "none";
-      status.appendChild(dot);
-      status.appendChild(cnt);
+      cnt.textContent = status === "open" ? "open" : count ? count + " pts" : "none";
+      statusEl.appendChild(dot);
+      statusEl.appendChild(cnt);
 
       tile.appendChild(name);
-      tile.appendChild(status);
+      tile.appendChild(statusEl);
       tile.addEventListener("click", function () { setActiveFeature(feature.id); });
       featureList.appendChild(tile);
     });
@@ -368,6 +495,8 @@
   }
 
   function setActiveFeature(id) {
+    var item = activeImage();
+    if (item && state.activeFeatureId && state.activeFeatureId !== id) stitchFeatureQuiet(item, state.activeFeatureId);
     state.activeFeatureId = id;
     state.showAll = false;        // choosing a feature exits review mode
     state.currentStroke = null;
@@ -377,6 +506,8 @@
   }
 
   function setShowAll(on) {
+    var item = activeImage();
+    if (on && item) features.forEach(function (f) { stitchFeatureQuiet(item, f.id); });
     state.showAll = Boolean(on);
     state.currentStroke = null;
     applyReviewMode();
@@ -387,6 +518,7 @@
   function applyReviewMode() {
     if (appShell) appShell.classList.toggle("review-mode", state.showAll);
     if (reviewBadge) reviewBadge.classList.toggle("visible", state.showAll && !!activeImage());
+    updateWorkRow2();
     updateCanvasCursor();
   }
 
@@ -407,7 +539,7 @@
     if (state.history.length > 300) state.history.shift();
   }
 
-  function rebuildShape(featureId, points) {
+  function makeArcShape(featureId, points, closed) {
     var feature = featureById(featureId) || activeFeature();
     return {
       id: featureId + "_" + Date.now() + "_" + Math.random().toString(16).slice(2),
@@ -415,46 +547,173 @@
       label: feature.label,
       type: "polyline",
       color: feature.color,
+      closed: !!closed,
       points: points.map(function (p) { return { x: Number(p.x.toFixed(1)), y: Number(p.y.toFixed(1)) }; })
     };
   }
+  // kept name for import/restore call sites
+  function rebuildShape(featureId, points, closed) {
+    return makeArcShape(featureId, points, closed === undefined ? true : closed);
+  }
+  function cloneArc(a) {
+    return { id: a.id, feature: a.feature, label: a.label, color: a.color, type: a.type,
+      closed: a.closed, points: a.points.map(function (p) { return { x: p.x, y: p.y }; }) };
+  }
 
-  function addShape(points) {
-    var item = activeImage();
-    var feature = activeFeature();
-    if (!item || !points.length) return;
-    var shape = rebuildShape(feature.id, points);
-    // FishInspector keeps one contour per feature: a new stroke replaces it.
-    var replaced = [];
-    item.shapes = item.shapes.filter(function (existing) {
-      if (existing.feature === feature.id) { replaced.push(existing); return false; }
-      return true;
-    });
-    item.shapes.push(shape);
-    pushHistory({ kind: "replace", imageId: item.id, shape: shape, replaced: replaced });
+  // ---- feature = a set of arcs (open polylines) or one closed loop ----------
+
+  function featureArcs(item, fid) {
+    return item.shapes.filter(function (s) { return s.feature === fid; });
+  }
+  function setFeatureArcs(item, fid, arcs) {
+    item.shapes = item.shapes.filter(function (s) { return s.feature !== fid; }).concat(arcs);
+  }
+  function snapshotFeature(item, fid) {
+    return featureArcs(item, fid).map(cloneArc);
+  }
+  function featurePointCount(item, fid) {
+    return featureArcs(item, fid).reduce(function (n, a) { return n + a.points.length; }, 0);
+  }
+  function featureStatus(item, fid) {
+    var arcs = featureArcs(item, fid).filter(function (a) { return a.points.length; });
+    if (!arcs.length) return "empty";
+    if (arcs.length === 1 && arcs[0].closed) return "done";
+    var stitched = geomStitch(arcs, fid, stitchTol(), false);
+    return (stitched.length === 1 && stitched[0].closed) ? "done" : "open";
+  }
+  function commitFeature(item, fid, before) {
+    pushHistory({ kind: "featureArcs", imageId: item.id, feature: fid, before: before });
     renderLists();
     draw();
     scheduleAutosave(item);
     markDirty(item);
   }
+  function weldThreshold() { return Math.max(editRadiusImg(), 8 / state.scale); }
+  function stitchTol() { var it = activeImage(); return Math.max(editRadiusImg(), (it && it.height ? it.height : 400) * 0.015); }
 
-  // Erase brush: delete points of the ACTIVE feature that fall inside the brush.
+  // ---- arc geometry ---------------------------------------------------------
+
+  function runsLinear(points, keep) {
+    var runs = [], cur = [];
+    for (var i = 0; i < points.length; i += 1) {
+      if (keep[i]) cur.push(points[i]); else { if (cur.length) runs.push(cur); cur = []; }
+    }
+    if (cur.length) runs.push(cur);
+    return runs;
+  }
+  function runsCyclic(points, keep) {
+    var runs = runsLinear(points, keep);
+    if (runs.length > 1 && keep[0] && keep[points.length - 1]) { var last = runs.pop(); runs[0] = last.concat(runs[0]); }
+    return runs;
+  }
+  function geomErase(arcs, c, r, fid) {
+    var out = [];
+    arcs.forEach(function (arc) {
+      var keep = arc.points.map(function (p) { return distance(p, c) >= r; });
+      if (keep.every(Boolean)) { out.push(arc); return; }
+      var runs = arc.closed ? runsCyclic(arc.points, keep) : runsLinear(arc.points, keep);
+      runs.forEach(function (run) { if (run.length >= 2) out.push(makeArcShape(fid, run, false)); });
+    });
+    return out;
+  }
+  function smoothJunction(points, idx, lambda, span) {
+    var n = points.length;
+    for (var i = Math.max(1, idx - span); i <= Math.min(n - 2, idx + span); i += 1) {
+      var a = points[i - 1], b = points[i + 1];
+      points[i] = { x: points[i].x + lambda * ((a.x + b.x) / 2 - points[i].x), y: points[i].y + lambda * ((a.y + b.y) / 2 - points[i].y) };
+    }
+    return points;
+  }
+  function joinEnds(aArc, ea, bArc, eb) {
+    var A = ea === 1 ? aArc.points.slice() : aArc.points.slice().reverse();
+    var B = eb === 0 ? bArc.points.slice() : bArc.points.slice().reverse();
+    var merged = A.concat(B.slice(1));
+    return smoothJunction(merged, A.length - 1, 0.4, 2);
+  }
+  function geomStitch(arcs, fid, threshold, forceClose) {
+    arcs = arcs.map(function (a) { return makeArcShape(fid, a.points, a.closed); });
+    while (true) {
+      var openIdx = [];
+      for (var k = 0; k < arcs.length; k += 1) if (!arcs[k].closed) openIdx.push(k);
+      if (openIdx.length <= 1) break;
+      var best = null;
+      for (var a = 0; a < openIdx.length; a += 1) for (var b = a + 1; b < openIdx.length; b += 1) {
+        var i = openIdx[a], j = openIdx[b];
+        for (var ei = 0; ei < 2; ei += 1) for (var ej = 0; ej < 2; ej += 1) {
+          var pi = ei === 0 ? arcs[i].points[0] : arcs[i].points[arcs[i].points.length - 1];
+          var pj = ej === 0 ? arcs[j].points[0] : arcs[j].points[arcs[j].points.length - 1];
+          var d = distance(pi, pj);
+          if (!best || d < best.d) best = { i: i, j: j, ei: ei, ej: ej, d: d };
+        }
+      }
+      if (!best || (!forceClose && best.d > threshold)) break;
+      var merged = joinEnds(arcs[best.i], best.ei, arcs[best.j], best.ej);
+      var ni = [];
+      for (var m = 0; m < arcs.length; m += 1) if (m !== best.i && m !== best.j) ni.push(arcs[m]);
+      ni.push(makeArcShape(fid, merged, false));
+      arcs = ni;
+    }
+    var open = arcs.filter(function (a) { return !a.closed; });
+    if (open.length === 1) {
+      var only = open[0];
+      var d2 = distance(only.points[0], only.points[only.points.length - 1]);
+      if (forceClose || d2 <= threshold) only.closed = true;
+    }
+    return arcs;
+  }
+  function geomWeld(arcs, strokePts, fid, threshold) {
+    var freeEnds = [];
+    arcs.forEach(function (arc) { if (!arc.closed) { freeEnds.push(arc.points[0]); freeEnds.push(arc.points[arc.points.length - 1]); } });
+    var s = strokePts.slice();
+    var capture = Math.max(threshold, 6 / state.scale);
+    function nearest(pt) { var best = null; freeEnds.forEach(function (p) { var d = distance(pt, p); if (!best || d < best.d) best = { p: p, d: d }; }); return best; }
+    if (freeEnds.length) {
+      var sn = nearest(s[0]);
+      if (sn && sn.d <= capture) { var ti = 0, td = Infinity; for (var i = 0; i < Math.min(s.length, 30); i += 1) { var d = distance(s[i], sn.p); if (d < td) { td = d; ti = i; } } s = s.slice(ti); }
+      var en = nearest(s[s.length - 1]);
+      if (en && en.d <= capture) { var tj = s.length - 1, tjd = Infinity; for (var q = s.length - 1; q >= Math.max(0, s.length - 30); q -= 1) { var dq = distance(s[q], en.p); if (dq < tjd) { tjd = dq; tj = q; } } s = s.slice(0, tj + 1); }
+    }
+    if (s.length < 2) return arcs.slice();
+    return geomStitch(arcs.concat([makeArcShape(fid, s, false)]), fid, threshold, false);
+  }
+
+  // ---- draw / erase / edit finish -------------------------------------------
+
+  function onDrawFinish(points) {
+    var item = activeImage();
+    var feature = activeFeature();
+    if (!item || points.length < 2) return;
+    var before = snapshotFeature(item, feature.id);
+    var status = featureStatus(item, feature.id);
+    var arcs;
+    if (status === "open") {
+      // add another piece: weld to nearby loose ends, else it's a new open arc
+      arcs = geomWeld(featureArcs(item, feature.id), points, feature.id, weldThreshold());
+    } else {
+      // empty, or starting over on a finished loop: the stroke is one open piece
+      // (geomStitch closes it only if its own ends already meet)
+      arcs = geomStitch([makeArcShape(feature.id, points, false)], feature.id, weldThreshold(), false);
+    }
+    setFeatureArcs(item, feature.id, arcs);
+    commitFeature(item, feature.id, before);
+  }
+
+  // Erase brush: cut points of the ACTIVE feature inside the brush, splitting arcs.
   function eraseBrush(e) {
     var item = activeImage();
     if (!item || !state.action) return;
-    var shape = item.shapes.find(function (s) { return s.id === state.action.shapeId; });
-    if (!shape) return;
+    var fid = state.action.feature;
     var radius = editRadiusImg();
     var events = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
     if (!events.length) events = [e];
     var changed = false;
     for (var k = 0; k < events.length; k += 1) {
       var c = screenToImage(events[k].clientX, events[k].clientY);
-      var before = shape.points.length;
-      shape.points = shape.points.filter(function (p) {
-        return Math.sqrt((p.x - c.x) * (p.x - c.x) + (p.y - c.y) * (p.y - c.y)) >= radius;
-      });
-      if (shape.points.length !== before) changed = true;
+      var arcs = featureArcs(item, fid);
+      var beforeN = arcs.reduce(function (n, a) { return n + a.points.length; }, 0);
+      var na = geomErase(arcs, c, radius, fid);
+      var afterN = na.reduce(function (n, a) { return n + a.points.length; }, 0);
+      if (afterN !== beforeN) { setFeatureArcs(item, fid, na); changed = true; }
     }
     if (changed) draw();
   }
@@ -464,17 +723,7 @@
     if (!action) return;
     var item = state.images.find(function (image) { return image.id === action.imageId; });
     if (!item) return;
-    if (action.kind === "add") item.shapes = item.shapes.filter(function (s) { return s.id !== action.shape.id; });
-    if (action.kind === "replace") {
-      item.shapes = item.shapes.filter(function (s) { return s.id !== action.shape.id; });
-      if (action.replaced && action.replaced.length) item.shapes.push.apply(item.shapes, action.replaced);
-    }
-    if (action.kind === "remove") item.shapes.splice(action.index, 0, action.shape);
-    if (action.kind === "clear") item.shapes.push.apply(item.shapes, action.shapes);
-    if (action.kind === "editPoints") {
-      var target = item.shapes.find(function (s) { return s.id === action.shapeId; });
-      if (target) target.points = action.before.map(function (p) { return { x: p.x, y: p.y }; });
-    }
+    if (action.kind === "featureArcs") setFeatureArcs(item, action.feature, action.before.map(cloneArc));
     renderLists();
     draw();
     scheduleAutosave(item);
@@ -484,15 +733,32 @@
   function clearActiveFeature() {
     var item = activeImage();
     var feature = activeFeature();
+    if (!item || !featureArcs(item, feature.id).length) return;
+    var before = snapshotFeature(item, feature.id);
+    setFeatureArcs(item, feature.id, []);
+    commitFeature(item, feature.id, before);
+  }
+
+  function joinLooseEnds() {
+    var item = activeImage();
     if (!item) return;
-    var removed = item.shapes.filter(function (s) { return s.feature === feature.id; });
-    if (!removed.length) return;
-    item.shapes = item.shapes.filter(function (s) { return s.feature !== feature.id; });
-    pushHistory({ kind: "clear", imageId: item.id, shapes: removed });
-    renderLists();
-    draw();
-    scheduleAutosave(item);
-    markDirty(item);
+    var fid = state.activeFeatureId;
+    if (featureStatus(item, fid) !== "open") { setLoadStatus("Nothing to join for " + activeFeature().label + ".", false); return; }
+    var before = snapshotFeature(item, fid);
+    setFeatureArcs(item, fid, geomStitch(featureArcs(item, fid), fid, Infinity, true));
+    commitFeature(item, fid, before);
+    setLoadStatus("Joined loose ends of " + activeFeature().label + ".", false);
+  }
+
+  // auto-join small gaps when leaving a feature / entering review / saving
+  function stitchFeatureQuiet(item, fid) {
+    var arcs = featureArcs(item, fid);
+    if (arcs.length <= 1 && (!arcs.length || arcs[0].closed)) return;
+    var stitched = geomStitch(arcs, fid, stitchTol(), false);
+    if (stitched.length !== arcs.length || stitched.some(function (a, i) { return !arcs[i] || a.closed !== arcs[i].closed; })) {
+      setFeatureArcs(item, fid, stitched);
+      scheduleAutosave(item);
+    }
   }
 
   // ---- autosave (IndexedDB, keyed by image basename) -----------------------
@@ -542,27 +808,22 @@
   }
 
   function serializeShapes(item) {
-    return item.shapes.map(function (s) { return { feature: s.feature, points: s.points }; });
+    return item.shapes.map(function (s) { return { feature: s.feature, points: s.points, closed: s.closed !== false }; });
   }
   function scheduleAutosave(item) {
     if (!item) return;
     var base = matchKey(item.name);
     var record = { basename: base, shapes: serializeShapes(item), width: item.width, height: item.height, savedAt: Date.now() };
     savedByName[base] = record;
-    setSaveStatus("Saving...", "pending");
     window.clearTimeout(autosaveTimers[base]);
     autosaveTimers[base] = window.setTimeout(function () {
-      idbPut(record).then(function () {
-        setSaveStatus("Saved " + new Date(record.savedAt).toLocaleTimeString(), "ok");
-      }).catch(function () {
-        setSaveStatus("Kept in this session (browser storage unavailable)", "warn");
-      });
+      idbPut(record).catch(function () {});   // silent: for resuming this image later
     }, 350);
   }
   function restoreShapesForItem(item) {
     var rec = savedByName[matchKey(item.name)] || savedByName[imageBasename(item.name)];
     if (!rec || !rec.shapes || !rec.shapes.length) return;
-    item.shapes = rec.shapes.map(function (r) { return rebuildShape(r.feature, r.points); });
+    item.shapes = rec.shapes.map(function (r) { return rebuildShape(r.feature, r.points, r.closed !== false); });
   }
 
   function parseFishInspector(obj) {
@@ -573,7 +834,7 @@
       var xs = node.shape.x, ys = node.shape.y;
       var pts = [];
       for (var i = 0; i < xs.length; i += 1) pts.push({ x: xs[i], y: ys[i] });
-      if (pts.length) shapes.push({ feature: feature.id, points: pts });
+      if (pts.length) shapes.push({ feature: feature.id, points: pts, closed: true });
     });
     return shapes;
   }
@@ -584,10 +845,11 @@
 
   // Put a parsed annotation set onto a specific image and persist it.
   function attachAnnotations(item, shapes) {
-    item.shapes = shapes.map(function (r) { return rebuildShape(r.feature, r.points); });
+    item.shapes = shapes.map(function (r) { return rebuildShape(r.feature, r.points, r.closed !== false); });
     item.dirty = false;   // freshly loaded from a JSON file: nothing to save yet
+    item.hadJson = true;  // has annotations from a JSON -> flip disabled
     var key = matchKey(item.name);
-    var record = { basename: key, shapes: shapes, width: item.width, height: item.height, savedAt: Date.now() };
+    var record = { basename: key, shapes: serializeShapes(item), width: item.width, height: item.height, savedAt: Date.now() };
     savedByName[key] = record;
     idbPut(record).catch(function () {});
     if (item.id === state.activeImageId) { draw(); updateDirtyBadge(); }
@@ -652,6 +914,7 @@
       item._decoding = null;
       state.decodeOrder.push(item.id);
       evictDecoded();
+      if (item.id === state.activeImageId) updateFlipButton();
       return item;
     }).catch(function (err) {
       item._decoding = null;
@@ -683,12 +946,14 @@
     });
   }
 
-  function registerFile(file) {
+  function registerFile(file, handle) {
     var name = file.webkitRelativePath || file.name;
     var item = {
       id: name + "_" + (file.lastModified || 0) + "_" + Math.random().toString(16).slice(2),
       name: name,
       file: file,
+      fileHandle: handle || null,
+      hadJson: false,
       width: 0,
       height: 0,
       element: null,
@@ -703,7 +968,7 @@
     return item;
   }
 
-  async function loadFiles(files, source) {
+  async function loadFiles(files, source, handleMap) {
     var incoming = Array.from(files || []);
     var sourceName = source || "drop";
     setLoadDetails([]);
@@ -718,7 +983,7 @@
     candidates.sort(function (a, b) { return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true }); });
     var firstNewId = null;
     candidates.forEach(function (file) {
-      var item = registerFile(file);
+      var item = registerFile(file, handleMap && handleMap[file.name]);
       if (firstNewId === null) firstNewId = item.id;
     });
 
@@ -1105,24 +1370,35 @@
       enabled: 1,
       imageDimensions: [item.width, item.height, 3]
     };
-    // Emit features in canonical order, only those the user actually traced.
+    // Emit features in canonical order, stitching each into one contour.
     features.forEach(function (feature) {
-      var shape = null;
-      for (var i = item.shapes.length - 1; i >= 0; i -= 1) {
-        if (item.shapes[i].feature === feature.id) { shape = item.shapes[i]; break; }
-      }
-      if (!shape || !shape.points.length) return;
-      var xArr = shape.points.map(function (p) { return round1(p.x); });
-      var yArr = shape.points.map(function (p) { return round1(p.y); });
+      var arc = stitchedFeatureArc(item, feature.id);
+      if (!arc) return;   // empty, or broken (handled by brokenFeatures on save)
+      var xArr = arc.points.map(function (p) { return round1(p.x); });
+      var yArr = arc.points.map(function (p) { return round1(p.y); });
       out[feature.id] = {
         mode: "manual",
         parameter: featureParameters[feature.id] || { disksize_CloseOpen: 0, min_peak_width: 0, contour_smoothing: 0.9 },
         shape: { name: "fineContour", x: xArr, y: yArr },
-        regionprops: computeRegionProps(shape.points, gray)
+        regionprops: computeRegionProps(arc.points, gray)
       };
     });
     out.imageBackground = computeBackground(item, gray);
     return out;
+  }
+
+  // Stitch a feature's arcs; return the single closed contour, or null if broken.
+  function stitchedFeatureArc(item, fid) {
+    var arcs = featureArcs(item, fid).filter(function (a) { return a.points.length; });
+    if (!arcs.length) return null;
+    if (arcs.length === 1 && arcs[0].closed) return arcs[0];
+    var stitched = geomStitch(arcs, fid, stitchTol(), false);
+    return (stitched.length === 1 && stitched[0].closed) ? stitched[0] : null;
+  }
+  function brokenFeatures(item) {
+    return features.filter(function (f) {
+      return featureArcs(item, f.id).filter(function (a) { return a.points.length; }).length && !stitchedFeatureArc(item, f.id);
+    });
   }
 
   function annotatedImages() {
@@ -1142,12 +1418,24 @@
 
   function downloadExport() {
     var item = activeImage();
-    if (!item) { setLoadStatus("Load an image before saving.", true); return; }
+    if (!item) { setLoadStatus("Load an image before saving.", true); return false; }
+    var broken = brokenFeatures(item);
+    if (broken.length) {
+      broken.forEach(function (f) { stitchFeatureQuiet(item, f.id); });   // try once more within tolerance
+      broken = brokenFeatures(item);
+    }
+    if (broken.length) {
+      renderLists();
+      setLoadStatus("Open contour in: " + broken.map(function (f) { return f.label; }).join(", ") + ". Connect the ends (or use \u201cJoin loose ends\u201d) before saving.", true);
+      return false;
+    }
     var json = JSON.stringify(buildFishInspector(item), null, 1);
     triggerDownload(new Blob([json], { type: "application/json" }), imageBasename(item.name) + "__SHAPES.json");
     item.dirty = false;
     updateDirtyBadge();
+    renderImages();
     setLoadStatus("Saved " + imageBasename(item.name) + "__SHAPES.json to your downloads.", false);
+    return true;
   }
 
   // ---- Minimal store-only ZIP writer (no dependencies, keeps the app offline)
@@ -1219,10 +1507,17 @@
   // ---- tools ---------------------------------------------------------------
 
   function updateCanvasCursor() {
-    canvas.style.cursor = state.showAll ? "grab"
-      : state.tool === "pan" ? "grab"
-      : state.tool === "erase" ? "cell"
-      : state.tool === "edit" ? "crosshair" : "crosshair";
+    if (state.shiftPan || state.showAll) { canvas.style.cursor = "grab"; return; }
+    canvas.style.cursor = state.tool === "erase" ? "cell" : "crosshair";
+  }
+
+  // Second toolbar row: shown for Draw/Edit/Erase; Brush + Join only for Edit/Erase.
+  function updateWorkRow2() {
+    if (!appShell) return;
+    var editing = !state.showAll && (state.tool === "draw" || state.tool === "edit" || state.tool === "erase");
+    appShell.classList.toggle("show-row2", editing);
+    appShell.classList.toggle("tool-brush", editing && (state.tool === "edit" || state.tool === "erase"));
+    appShell.classList.toggle("tool-draw", editing && state.tool === "draw");
   }
 
   function setTool(tool) {
@@ -1230,12 +1525,9 @@
     document.querySelectorAll("[data-tool]").forEach(function (button) {
       button.classList.toggle("active", button.dataset.tool === tool);
     });
-    if (appShell) {
-      appShell.classList.toggle("tool-edit", tool === "edit");
-      appShell.classList.toggle("tool-erase", tool === "erase");
-    }
+    updateWorkRow2();
     updateCanvasCursor();
-    draw();   // refresh the push-brush circle on/off
+    draw();   // refresh the brush circle on/off
   }
 
   // ---- pointer routing: pen draws, fingers navigate, palm is ignored -------
@@ -1284,7 +1576,7 @@
     if (!events.length) events = [e];
     var changed = false;
     for (var i = 0; i < events.length; i += 1) {
-      var pt = screenToImage(events[i].clientX, events[i].clientY);
+      var pt = clampToImage(screenToImage(events[i].clientX, events[i].clientY));
       var last = state.currentStroke[state.currentStroke.length - 1];
       if (!last || distance(pt, last) >= 1.0) { state.currentStroke.push(pt); changed = true; }
     }
@@ -1292,15 +1584,6 @@
   }
 
   // ---- Edit push-brush -----------------------------------------------------
-
-  function activeFeatureShape() {
-    var item = activeImage();
-    if (!item) return null;
-    for (var i = item.shapes.length - 1; i >= 0; i -= 1) {
-      if (item.shapes[i].feature === state.activeFeatureId) return item.shapes[i];
-    }
-    return null;
-  }
 
   function editRadiusImg() {
     var item = activeImage();
@@ -1314,21 +1597,24 @@
   function pushBrush(e) {
     var item = activeImage();
     if (!item || !state.action) return;
-    var shape = item.shapes.find(function (s) { return s.id === state.action.shapeId; });
-    if (!shape) return;
+    var arcs = featureArcs(item, state.action.feature);
+    if (!arcs.length) return;
     var radius = editRadiusImg();
     var events = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
     if (!events.length) events = [e];
     for (var k = 0; k < events.length; k += 1) {
       var c = screenToImage(events[k].clientX, events[k].clientY);
-      for (var i = 0; i < shape.points.length; i += 1) {
-        var p = shape.points[i];
-        var dx = p.x - c.x, dy = p.y - c.y;
-        var d = Math.sqrt(dx * dx + dy * dy);
-        if (d >= radius || d < 0.001) continue;   // outside brush, or at centre
-        var s = radius / d;                        // project outward onto the rim
-        p.x = c.x + dx * s;
-        p.y = c.y + dy * s;
+      for (var a = 0; a < arcs.length; a += 1) {
+        var pts = arcs[a].points;
+        for (var i = 0; i < pts.length; i += 1) {
+          var p = pts[i];
+          var dx = p.x - c.x, dy = p.y - c.y;
+          var d = Math.sqrt(dx * dx + dy * dy);
+          if (d >= radius || d < 0.001) continue;
+          var s = radius / d;
+          p.x = Math.min(item.width, Math.max(0, c.x + dx * s));
+          p.y = Math.min(item.height, Math.max(0, c.y + dy * s));
+        }
       }
       state.action.last = c;
     }
@@ -1379,36 +1665,34 @@
     state.pinch = null;
     try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
     var kind = type === "pen" ? "pen" : "mouse";
-    // Review mode (All features) disables editing: pen/mouse pans for inspection.
-    if (state.showAll || state.tool === "pan" || e.button === 1 || e.altKey) {
+    // Review mode, or Shift/Alt/middle-button, pans for inspection.
+    if (state.showAll || e.button === 1 || e.altKey || e.shiftKey) {
       state.action = { pointerId: e.pointerId, kind: kind, type: "pan", lastX: e.clientX, lastY: e.clientY };
       canvas.style.cursor = "grabbing";
       return;
     }
+    // Draw/Edit/Erase act only on the image, not the dark margin around it.
+    var downImg = screenToImage(e.clientX, e.clientY);
+    if (!pointInImage(downImg, 6 / state.scale)) return;
     if (state.tool === "erase") {
-      var eraseTarget = activeFeatureShape();
-      if (!eraseTarget) { setLoadStatus("Nothing to erase for " + activeFeature().label + ".", false); return; }
-      state.action = {
-        pointerId: e.pointerId, kind: kind, type: "erase",
-        shapeId: eraseTarget.id,
-        before: eraseTarget.points.map(function (p) { return { x: p.x, y: p.y }; })
-      };
+      var fidE = activeFeature().id;
+      if (!featureArcs(item, fidE).length) { setLoadStatus("Nothing to erase for " + activeFeature().label + ".", false); return; }
+      state.action = { pointerId: e.pointerId, kind: kind, type: "erase", feature: fidE, before: snapshotFeature(item, fidE) };
       eraseBrush(e);
       return;
     }
     if (state.tool === "edit") {
-      var target = activeFeatureShape();
-      if (!target) { setLoadStatus("Draw or load the " + activeFeature().label + " outline before editing it.", false); return; }
+      var fidE2 = activeFeature().id;
+      if (!featureArcs(item, fidE2).length) { setLoadStatus("Draw or load the " + activeFeature().label + " outline before editing it.", false); return; }
       state.action = {
-        pointerId: e.pointerId, kind: kind, type: "edit",
-        shapeId: target.id,
-        before: target.points.map(function (p) { return { x: p.x, y: p.y }; }),
-        last: screenToImage(e.clientX, e.clientY)
+        pointerId: e.pointerId, kind: kind, type: "edit", feature: fidE2,
+        before: snapshotFeature(item, fidE2),
+        last: clampToImage(downImg)
       };
       return;
     }
     state.action = { pointerId: e.pointerId, kind: kind, type: "draw" };
-    state.currentStroke = [screenToImage(e.clientX, e.clientY)];
+    state.currentStroke = [clampToImage(downImg)];
     draw();
   });
 
@@ -1456,18 +1740,16 @@
     }
     if (state.touchPan && e.pointerId === state.touchPan.pointerId) state.touchPan = null;
     if (state.action && e.pointerId === state.action.pointerId) {
-      if (state.action.type === "draw" && state.currentStroke) addShape(state.currentStroke);
+      if (state.action.type === "draw" && state.currentStroke) onDrawFinish(state.currentStroke);
       if (state.action.type === "edit" || state.action.type === "erase") {
         var item = activeImage();
-        var shape = item && item.shapes.find(function (s) { return s.id === state.action.shapeId; });
-        if (shape) {
-          // edit only: soften where the wrapped arc meets the straight line
-          if (state.action.type === "edit" && state.action.last) smoothRegion(shape, state.action.last, editRadiusImg() * 1.3, 0.35, 1);
-          pushHistory({ kind: "editPoints", imageId: item.id, shapeId: shape.id, before: state.action.before });
-          renderLists();
-          scheduleAutosave(item);
-          markDirty(item);
-          draw();
+        if (item) {
+          if (state.action.type === "edit" && state.action.last) {
+            featureArcs(item, state.action.feature).forEach(function (arc) {
+              smoothRegion(arc, state.action.last, editRadiusImg() * 1.3, 0.35, 1);
+            });
+          }
+          commitFeature(item, state.action.feature, state.action.before);
         }
       }
       state.currentStroke = null;
@@ -1526,6 +1808,8 @@
     if (contrastInput) contrastInput.value = 100;
     draw();
   });
+  if (joinEndsBtn) joinEndsBtn.addEventListener("click", joinLooseEnds);
+  if (flipBtn) flipBtn.addEventListener("click", flipActiveImage);
   if (sidebarToggle) sidebarToggle.addEventListener("click", function () {
     appShell.classList.toggle("sidebar-open");
   });
@@ -1566,9 +1850,13 @@
             }
           }]
         });
-        var files = [];
-        for (var i = 0; i < handles.length; i += 1) files.push(await handles[i].getFile());
-        loadFiles(files, "picker");
+        var files = [], handleMap = {};
+        for (var i = 0; i < handles.length; i += 1) {
+          var f = await handles[i].getFile();
+          files.push(f);
+          handleMap[f.name] = handles[i];
+        }
+        loadFiles(files, "picker", handleMap);
       } catch (err) {
         if (err && err.name === "AbortError") return;   // user cancelled
         imageInput.click();                              // fall back on any other error
@@ -1586,11 +1874,11 @@
     if (window.showDirectoryPicker) {
       try {
         var dir = await window.showDirectoryPicker({ id: "fishAnnotatorFolder" });
-        var files = [];
+        var files = [], handleMap = {};
         for await (var entry of dir.values()) {
-          if (entry.kind === "file") files.push(await entry.getFile());
+          if (entry.kind === "file") { var ff = await entry.getFile(); files.push(ff); handleMap[ff.name] = entry; }
         }
-        loadFiles(files, "folder");
+        loadFiles(files, "folder", handleMap);
       } catch (err) {
         if (err && err.name === "AbortError") return;
         folderInput.click();
@@ -1615,6 +1903,7 @@
   // ---- keyboard ------------------------------------------------------------
 
   window.addEventListener("keydown", function (e) {
+    if (e.key === "Shift" && !state.shiftPan) { state.shiftPan = true; updateCanvasCursor(); }
     if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
     if (e.key === "Escape" && helpModal && !helpModal.hidden) { closeHelp(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); return; }
@@ -1626,19 +1915,22 @@
     switch (e.key.toLowerCase()) {
       case "d": if (state.showAll) setShowAll(false); setTool("draw"); break;
       case "e": if (state.showAll) setShowAll(false); setTool("erase"); break;
-      case "h": setTool("pan"); break;
+      case "g": if (state.showAll) setShowAll(false); setTool("edit"); break;
       case "a": setShowAll(!state.showAll); break;
       case "f": fitImage(); break;
       case "=": case "+": zoomCanvasCenter(1.25); break;
       case "-": zoomCanvasCenter(1 / 1.25); break;
     }
   });
+  window.addEventListener("keyup", function (e) {
+    if (e.key === "Shift") { state.shiftPan = false; updateCanvasCursor(); }
+  });
 
   window.addEventListener("resize", resizeCanvas);
   window.addEventListener("error", function (e) { setLoadStatus("Script error: " + (e.message || "unknown"), true); });
   window.addEventListener("beforeunload", function (e) {
-    var hasWork = state.images.some(function (im) { return im.shapes.length > 0; });
-    if (hasWork) { e.preventDefault(); e.returnValue = ""; }
+    var unsaved = state.images.some(function (im) { return im.dirty; });
+    if (unsaved) { e.preventDefault(); e.returnValue = ""; }
   });
 
   // ---- init ----------------------------------------------------------------
@@ -1650,9 +1942,5 @@
   updateReadout();
   (idbAvailable() ? idbLoadAll() : Promise.resolve({})).then(function (map) {
     savedByName = map || {};
-    var n = Object.keys(savedByName).length;
-    setSaveStatus(n ? "Autosave on \u00b7 " + n + " image" + (n === 1 ? "" : "s") + " remembered" : "Autosave on", "ok");
-  }).catch(function () {
-    setSaveStatus("Autosave unavailable in this browser", "warn");
-  });
+  }).catch(function () {});
 })();

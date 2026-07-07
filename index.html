@@ -21,67 +21,61 @@
         </div>
       </div>
       <div class="topbar-work">
-        <div class="tool-cluster">
-          <div class="seg" role="group" aria-label="Tools">
-            <button class="tool-button active" type="button" data-tool="draw">Draw</button>
-            <button class="tool-button" type="button" data-tool="edit">Edit</button>
-            <button class="tool-button" type="button" data-tool="erase">Erase</button>
-            <button class="tool-button" type="button" data-tool="pan">Pan</button>
+        <div class="work-row">
+          <div class="tool-cluster">
+            <button id="flipBtn" class="tool-button" type="button" title="Flip image vertically (only before annotating)">Flip &#8645;</button>
+            <span class="row2-divider"></span>
+            <div class="seg" role="group" aria-label="Tools">
+              <button class="tool-button active" type="button" data-tool="draw">Draw</button>
+              <button class="tool-button" type="button" data-tool="edit">Edit</button>
+              <button class="tool-button" type="button" data-tool="erase">Erase</button>
+            </div>
+            <button id="undoBtn" class="tool-button" type="button">Undo</button>
+            <button id="clearFeatureBtn" class="tool-button" type="button">Clear</button>
+            <div class="seg" role="group" aria-label="Zoom">
+              <button id="zoomOutBtn" class="tool-button" type="button" aria-label="Zoom out">&minus;</button>
+              <button id="zoom100Btn" class="tool-button" type="button">100%</button>
+              <button id="zoomInBtn" class="tool-button" type="button" aria-label="Zoom in">+</button>
+              <button id="fitBtn" class="tool-button" type="button">Fit</button>
+            </div>
           </div>
-          <label class="edit-size" title="Push-brush diameter (% of image height)">
-            <span>Brush</span>
-            <input id="editSize" type="range" min="1" max="33" step="1" value="8">
-          </label>
-          <button id="undoBtn" class="tool-button" type="button">Undo</button>
-          <button id="clearFeatureBtn" class="tool-button" type="button">Clear</button>
-          <div class="seg" role="group" aria-label="Zoom">
-            <button id="zoomOutBtn" class="tool-button" type="button" aria-label="Zoom out">&minus;</button>
-            <button id="zoom100Btn" class="tool-button" type="button">100%</button>
-            <button id="zoomInBtn" class="tool-button" type="button" aria-label="Zoom in">+</button>
-            <button id="fitBtn" class="tool-button" type="button">Fit</button>
+          <div class="readout">
+            <span class="readout-item"><label>Feature</label><strong id="activeFeatureName">&mdash;</strong></span>
+            <span class="readout-item"><label>Zoom</label><strong id="zoomLevel">100%</strong></span>
+            <span class="readout-item mono"><label>x, y</label><strong id="cursorCoord">&nbsp;&nbsp;--,&nbsp;&nbsp;&nbsp;--</strong></span>
           </div>
+          <button id="helpBtn" class="help-button" type="button" aria-label="Help">? Help</button>
         </div>
-        <div class="readout">
-          <span class="readout-item"><label>Feature</label><strong id="activeFeatureName">&mdash;</strong></span>
-          <span class="readout-item"><label>Zoom</label><strong id="zoomLevel">100%</strong></span>
-          <span class="readout-item mono"><label>x, y</label><strong id="cursorCoord">&nbsp;&nbsp;--,&nbsp;&nbsp;&nbsp;--</strong></span>
+        <div id="workRow2" class="work-row work-row2">
+          <label class="row2-slider brush-only" title="Brush diameter (Edit / Erase)"><span>Brush</span><input id="editSize" type="range" min="1" max="33" step="1" value="8"></label>
+          <button id="joinEndsBtn" class="tool-button draw-only" type="button">Join loose ends</button>
+          <span class="row2-divider"></span>
+          <span class="row2-group">
+            <span class="row2-group-label">Image view</span>
+            <label class="row2-slider"><span>Brightness</span><input id="brightness" type="range" min="40" max="160" step="1" value="100"></label>
+            <label class="row2-slider"><span>Contrast</span><input id="contrast" type="range" min="40" max="160" step="1" value="100"></label>
+            <button id="viewReset" class="mini-reset" type="button">reset</button>
+          </span>
         </div>
-        <button id="helpBtn" class="help-button" type="button" aria-label="Help">? Help</button>
       </div>
     </header>
 
     <aside class="sidebar">
-      <section class="panel">
+      <section class="panel grow">
         <div class="panel-title">Images</div>
         <button id="loadImagesBtn" class="file-button" type="button">Load images + JSON</button>
         <button id="loadFolderBtn" class="file-button ghost wide" type="button">Load folder</button>
         <div id="loadStatus" class="load-status">Select images together with their __SHAPES.json files, or load a whole folder.</div>
         <div id="loadDetails" class="load-details"></div>
-        <div class="active-field">
-          <span class="field-label">Selected</span>
-          <strong id="activeImageName">None</strong>
-          <span id="activeImageSize"></span>
-        </div>
+        <div id="imageList" class="image-list"></div>
         <input id="imageInput" type="file" hidden accept="image/jpeg,.jpg,.jpeg,image/png,.png,image/*,.bmp,.gif,.webp,.tif,.tiff,.json,application/json" multiple>
         <input id="folderInput" type="file" hidden accept="image/jpeg,.jpg,.jpeg,.png,image/*,.tif,.tiff,.json,application/json" multiple webkitdirectory directory>
       </section>
 
       <section class="panel">
-        <div class="panel-title">Image view <button id="viewReset" class="mini-reset" type="button">reset</button></div>
-        <label class="view-slider"><span>Brightness</span><input id="brightness" type="range" min="40" max="160" step="1" value="100"></label>
-        <label class="view-slider"><span>Contrast</span><input id="contrast" type="range" min="40" max="160" step="1" value="100"></label>
-        <div class="view-hint">Display only &mdash; the image file is not changed.</div>
-      </section>
-
-      <section class="panel grow">
-        <div class="panel-title">Queue</div>
-        <div id="imageList" class="image-list"></div>
-      </section>
-
-      <section class="panel">
         <div class="panel-title">Save</div>
-        <div id="saveStatus" class="save-status">Autosave on</div>
         <button id="exportBtn" class="primary-button" type="button">Save active JSON</button>
+        <div class="save-hint">Tip: save the JSON after finishing each feature so nothing is lost.</div>
       </section>
     </aside>
 
@@ -124,7 +118,7 @@
           <h3>1 &middot; Prepare images: TIFF &rarr; JPG</h3>
           <p>Microscopes usually save <strong>TIFF</strong>. Fish Annotator runs fastest on <strong>JPG</strong>, so convert first:</p>
           <ul>
-            <li>Save as JPG at <strong>90% quality or higher</strong>.</li>
+            <li>Save as JPG at <strong>90% quality or higher</strong> (the converter uses 95).</li>
             <li>Keep the <strong>exact same pixel size</strong> as the original &mdash; essential, because the annotation coordinates must line up with the original for FishInspector.</li>
             <li>Keep your original TIFFs; the JPG is only for annotating.</li>
           </ul>
@@ -154,17 +148,19 @@
         </section>
 
         <section>
-          <h3>4 &middot; The tools</h3>
-          <ul>
-            <li><strong>Draw</strong> &mdash; trace a feature&rsquo;s outline with the pen. One outline per feature; drawing again replaces it.</li>
-            <li><strong>Edit</strong> &mdash; push an existing outline into place. A circle (the <strong>Brush</strong>) follows the pen and shoves the line <em>out of the circle, away from the brush</em> &mdash; like a disc pushing a string. Push from one side to move the line that way; approach from the <em>other</em> side to push it back. The Brush slider (1/100&ndash;1/3 of image height) sets how much of the line moves at once. On a computer the circle follows the mouse so you can see where it will act, and it pushes only while a button is held; with a pen it acts only while the pen touches the screen.</li>
-            <li><strong>Erase</strong> &mdash; a brush (size set by the <strong>Brush</strong> slider) that removes only the parts of the <em>active</em> feature&rsquo;s outline it touches. Use <strong>Clear</strong> to remove a whole feature at once.</li>
-            <li><strong>Pan / zoom</strong> &mdash; one finger pans, two fingers pinch to zoom; the pen always draws. Also Fit, &minus;, 100%, +.</li>
-            <li><strong>Image view (Brightness / Contrast)</strong> &mdash; sliders in the sidebar adjust how the image looks on screen so you can see faint edges. They do <em>not</em> change the image file. Tap <em>reset</em> to return to normal.</li>
+            <li><strong>Flip &#8645;</strong> (first on the toolbar) &mdash; mirrors the image top-to-bottom for correct orientation, and saves it. Only available <em>before</em> annotating an image that has no JSON yet (greyed out once any feature is drawn or a JSON is loaded, since flipping would misalign outlines). Where the browser allows it (Android/desktop Chrome, ChromeOS, usually via <strong>Load folder</strong>) it overwrites the original file in place; otherwise it downloads the flipped JPG for you to replace the original. You then annotate the flipped image normally.</li>
+            <li><strong>Draw</strong> &mdash; trace an outline with the pen, <em>in as many strokes as you like</em>. Each stroke is a piece; start a new stroke near the loose end of the last one and they weld together (overshoot trimmed, joint smoothed). Reposition the image between strokes and keep going all the way around; when the last piece meets the first, the loop closes and the dot turns green.</li>
+            <li><strong>Edit</strong> &mdash; push an existing outline into place. A circle (the <strong>Brush</strong>) follows the pen and shoves the line <em>out of the circle, away from the brush</em> &mdash; like a disc pushing a string. Push from one side to move the line that way; approach from the <em>other</em> side to push it back. On a computer the circle follows the mouse and pushes only while a button is held; with a pen it acts only while touching.</li>
+            <li><strong>Erase</strong> &mdash; a brush that <em>cuts</em> the active outline where you touch it, opening a real gap so you can redraw that part. Erasing can split the line into pieces; the feature dot turns amber until it is one closed loop again.</li>
+            <li><strong>Join loose ends</strong> (second toolbar row, during Draw) &mdash; connects any remaining open ends of the active feature by nearest distance, closing the contour. Use it when a gap is a few pixels too wide to join on its own.</li>
+            <li><strong>Clear</strong> &mdash; remove the whole active feature&rsquo;s outline at once.</li>
+            <li><strong>Move &amp; zoom</strong> &mdash; on a touchscreen, <strong>two fingers</strong> move the image and <strong>pinch</strong> zooms (one finger / the pen always draws). On a computer, hold <strong>Shift</strong> and drag to move the image, use the mouse wheel or the &minus;/100%/+/Fit buttons to zoom.</li>
+            <li><strong>Second toolbar row</strong> &mdash; appears while Draw, Edit, or Erase is selected. It always shows <strong>Image view: Brightness / Contrast</strong> (with <em>reset</em>) &mdash; these change only how the image looks on screen, never the file. Draw also shows <strong>Join loose ends</strong>; Edit and Erase show the <strong>Brush</strong> size.</li>
             <li><strong>All features</strong> &mdash; shows every outline at once for review (editing paused). Tap a feature to resume editing it.</li>
-            <li><strong>Feature tiles</strong> &mdash; choose the feature you&rsquo;re working on. The dot is <span class="help-dot red"></span> <strong>red</strong> when a feature has no outline and <span class="help-dot green"></span> <strong>green</strong> once it does &mdash; a quick check that nothing is missing.</li>
-            <li><strong>Undo</strong>, <strong>Clear</strong> (removes the current feature&rsquo;s outline), and <strong>Save active JSON</strong>. <strong>Unsaved JSON</strong> shows in yellow when you have changes not yet saved.</li>
+            <li><strong>Feature tiles</strong> &mdash; choose the active feature. The dot is <span class="help-dot red"></span> <strong>red</strong> when empty, <span class="help-dot amber"></span> <strong>amber</strong> when the contour is open (has a gap), and <span class="help-dot green"></span> <strong>green</strong> when it is one closed loop. Small gaps are auto-joined when you switch feature, open All features, or save; a real gap that remains blocks saving until you connect it.</li>
+            <li><strong>Undo</strong> and <strong>Save active JSON</strong>. A bright <strong>Unsaved JSON</strong> badge shows when you have changes not yet saved &mdash; save after finishing each feature. Your in-progress work (including half-drawn outlines) is kept in the browser, so re-opening the same image later resumes where you left off; but only <strong>Save active JSON</strong> produces the file for FishInspector. Switching to another image with unsaved changes asks whether to save first.</li>
           </ul>
+          <p class="help-note">Draw, Edit, and Erase act only on the image itself &mdash; strokes in the dark margin around it are ignored, and a line can run along the image edge but never outside it.</p>
         </section>
 
         <section>
@@ -180,7 +176,7 @@
             <li>Open a terminal / Command Prompt and install the libraries:<br><code>pip install pillow tifffile numpy</code></li>
             <li>Run the converter:<br><code>python convert_to_jpg.py INPUT_FOLDER OUTPUT_FOLDER</code></li>
           </ol>
-          <p>Defaults: JPG quality 90, grayscale, same pixel size. That is the entire setup.</p>
+          <p>Defaults: JPG quality 95, grayscale, same pixel size. That is the entire setup.</p>
         </section>
 
       </div>

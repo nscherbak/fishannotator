@@ -7,7 +7,7 @@ Coordinates traced on the JPEG then map straight back onto the original TIFF
 for FishInspector's measurement run.
 
 Usage:
-    python convert_to_jpg.py INPUT_DIR OUTPUT_DIR [--quality 90] [--no-stretch]
+    python convert_to_jpg.py INPUT_DIR OUTPUT_DIR [--quality 95] [--no-stretch]
 
 Requires: pillow, tifffile, numpy
     pip install pillow tifffile numpy
@@ -83,8 +83,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="TIFF -> same-size grayscale JPEG")
     ap.add_argument("input_dir")
     ap.add_argument("output_dir")
-    ap.add_argument("--quality", type=int, default=90,
-                    help="JPEG quality 1-100 (default 90; keep >=85 for clean edges)")
+    ap.add_argument("--quality", type=int, default=95,
+                    help="JPEG quality 1-100 (default 95; keep >=85 for clean edges)")
     ap.add_argument("--no-stretch", action="store_true",
                     help="skip the 2-98%% contrast stretch used to make faint fish visible")
     args = ap.parse_args()

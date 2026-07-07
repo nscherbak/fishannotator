@@ -17,17 +17,19 @@ It is designed for pen-on-tablet use (Apple Pencil, S-Pen, etc.) as well as mous
 
 | Tool | Purpose |
 |------|---------|
-| **Draw** | Trace a feature's outline (one outline per feature; drawing again replaces it). |
+| **Flip ⇕** | Mirror the image top-to-bottom and save it. Only before annotating an image that has no JSON (greyed out once a feature is drawn or a JSON is loaded). Overwrites the original file in place where the browser allows (Android/desktop Chrome, ChromeOS — usually via **Load folder**); otherwise downloads the flipped JPG to replace the original. You then annotate the flipped image. |
+| **Draw** | Trace an outline in as many strokes as you like. Each stroke is a piece; starting a new stroke near a loose end welds it on (overshoot trimmed, joint smoothed). Reposition between strokes; when the last piece meets the first, the loop closes (green). |
 | **Edit** | Push an existing outline into place with a circular brush — the line is shoved out of the circle, away from the brush. Push from one side to move it that way; the other side to push it back. Brush size adjustable (1/100–1/3 of image height). |
-| **Erase** | A brush that removes only the parts of the *active* feature's outline it touches (size set by the Brush slider). |
+| **Erase** | A brush that *cuts* the active outline where you touch it, opening a real gap so you can redraw that part. |
+| **Join loose ends** | Connects any remaining open ends of the active feature by nearest distance, closing the contour (second toolbar row, during Draw). |
 | **Clear** | Remove the whole active feature's outline at once. |
-| **Pan / pinch** | One finger pans, two fingers zoom; the pen always draws. |
+| **Move / zoom** | Touch: two fingers move the image, pinch to zoom (one finger / pen draws). Computer: hold **Shift** and drag to move; mouse wheel or the −/100%/+/Fit buttons to zoom. |
 | **All features** | Review mode: shows every outline at once (editing paused). |
-| **Feature tiles** | Pick the active feature. A red dot = not annotated, green dot = annotated. |
-| **Image view** | Brightness / Contrast sliders adjust the on-screen view only — the image file is not changed. |
-| **Save active JSON** | Writes `<image>__SHAPES.json`. An "Unsaved JSON" flag shows pending changes. |
+| **Feature tiles** | Pick the active feature. Dot: red = empty, amber = open contour (has a gap), green = one closed loop. Small gaps auto-join on feature-switch / All features / save; a remaining gap blocks saving that feature. |
+| **Second toolbar row** | Appears for Draw/Edit/Erase. Always shows **Image view** (Brightness / Contrast, view-only); Draw also shows Join loose ends; Edit/Erase show Brush size. |
+| **Save active JSON** | Writes `<image>__SHAPES.json`. Broken (open) contours block the save until connected. In-progress work is kept in the browser so re-opening an image resumes it; switching images with unsaved changes asks whether to save first. |
 
-Work autosaves in the browser (IndexedDB) so annotations survive an accidental reload. A built-in **Help** panel explains everything, including device-specific file handling.
+In-progress work (including half-drawn outlines) is kept in the browser, so re-opening the same image later resumes where you left off — but only **Save active JSON** produces the file for FishInspector. Switching images with unsaved changes prompts you to save first. A built-in **Help** panel explains everything, including device-specific file handling.
 
 ---
 
@@ -66,17 +68,17 @@ pip install pillow tifffile numpy
 ### Usage (command line)
 
 ```
-python convert_to_jpg.py INPUT_FOLDER OUTPUT_FOLDER [--quality 90] [--no-stretch]
+python convert_to_jpg.py INPUT_FOLDER OUTPUT_FOLDER [--quality 95] [--no-stretch]
 ```
 
 | Argument | Meaning |
 |----------|---------|
 | `INPUT_FOLDER` | Folder containing `.tif` / `.tiff` images. |
 | `OUTPUT_FOLDER` | Where the `.jpg` files are written (created if it doesn't exist). |
-| `--quality` | JPEG quality, 1–100. Default **90**. Keep ≥ 85 for clean edges. |
+| `--quality` | JPEG quality, 1–100. Default **95**. Keep ≥ 85 for clean edges. |
 | `--no-stretch` | Skip the 2–98 % contrast stretch (which makes faint fish more visible). |
 
-Defaults: **quality 90, grayscale, same pixel size**, with a gentle contrast stretch.
+Defaults: **quality 95, grayscale, same pixel size**, with a gentle contrast stretch.
 
 #### Examples
 
@@ -96,7 +98,7 @@ Each converted file is reported with its pixel size, e.g.:
 
 ```
   ZF211029GANN01_A.tif  ->  ZF211029GANN01_A.jpg  (1285x274 px)
-Converted 48/48 images (quality=90, stretched, grayscale).
+Converted 48/48 images (quality=95, stretched, grayscale).
 ```
 
 > Note: the converter handles uncompressed and PackBits TIFFs (via Pillow/tifffile). Most microscope TIFFs are supported.
@@ -110,6 +112,12 @@ Converted 48/48 images (quality=90, stretched, grayscale).
 3. Draw or **Edit** each feature; check every feature dot is green.
 4. **Save active JSON**.
 5. Put the saved `__SHAPES.json` in the folder with the original **TIFF** and open it in **FishInspector** for analysis.
+
+### Fixing a wrongly-placed section of a contour
+
+1. Select the feature and pick **Erase**; brush over the bad section to open a gap (the dot turns amber).
+2. Pick **Draw** and trace the correct section, starting near one loose end and finishing near the other — it welds into the line.
+3. If a small gap remains, press **Join loose ends** (Adjust row). The dot returns to green and the contour saves as one continuous loop.
 
 ---
 
