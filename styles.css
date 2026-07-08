@@ -86,16 +86,34 @@ button, input { font: inherit; color: inherit; }
   z-index: 30;
   display: none;
 }
-.show-row2 .work-row2 { display: flex; }
+.show-row2 .work-row2 { display: flex; align-items: center; }
 .brush-only { display: none !important; }
 .tool-brush .brush-only { display: inline-flex !important; }
-.draw-only { display: none !important; }
-.tool-draw .draw-only { display: inline-flex !important; }
+.join-only { display: none !important; }
+.tool-join .join-only { display: inline-flex !important; }
 .row2-slider { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; color: var(--muted); font-size: 12px; }
 .row2-slider input[type="range"] { width: 128px; accent-color: var(--accent); }
 .row2-divider { display: inline-block; width: 1px; height: 22px; background: var(--line); }
-.row2-group { display: inline-flex; align-items: center; gap: 12px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); }
+.row2-group { display: inline-flex; align-items: center; gap: 12px; height: 34px; box-sizing: border-box; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
 .row2-group-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; }
+#joinEndsBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+  white-space: nowrap;
+}
+#joinEndsBtn:hover { background: var(--accent-wash); }
+#joinEndsBtn:active { background: var(--accent-wash); }
 .brand {
   display: flex;
   align-items: center;
@@ -108,9 +126,9 @@ button, input { font: inherit; color: inherit; }
 .brand-by { font-size: 10px; color: var(--muted); letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; }
 .brand-mark {
   flex: 0 0 auto;
-  width: 16px; height: 16px; border-radius: 5px;
-  background: radial-gradient(circle at 32% 32%, #22c1cf, var(--accent) 60%, var(--accent-ink));
-  box-shadow: 0 0 0 3px var(--accent-wash);
+  width: 34px; height: 34px; border-radius: 9px;
+  object-fit: cover;
+  display: block;
 }
 .tool-cluster {
   display: flex;

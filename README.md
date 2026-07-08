@@ -21,12 +21,12 @@ It is designed for pen-on-tablet use (Apple Pencil, S-Pen, etc.) as well as mous
 | **Draw** | Trace an outline in as many strokes as you like. Each stroke is a piece; starting a new stroke near a loose end welds it on (overshoot trimmed, joint smoothed). Reposition between strokes; when the last piece meets the first, the loop closes (green). |
 | **Edit** | Push an existing outline into place with a circular brush — the line is shoved out of the circle, away from the brush. Push from one side to move it that way; the other side to push it back. Brush size adjustable (1/100–1/3 of image height). |
 | **Erase** | A brush that *cuts* the active outline where you touch it, opening a real gap so you can redraw that part. |
-| **Join loose ends** | Connects any remaining open ends of the active feature by nearest distance, closing the contour (second toolbar row, during Draw). |
+| **Join loose ends** | Connects any remaining open ends of the active feature by nearest distance, closing the contour (second toolbar row, during Draw or Erase). |
 | **Clear** | Remove the whole active feature's outline at once. |
 | **Move / zoom** | Touch: two fingers move the image, pinch to zoom (one finger / pen draws). Computer: hold **Shift** and drag to move; mouse wheel or the −/100%/+/Fit buttons to zoom. |
 | **All features** | Review mode: shows every outline at once (editing paused). |
 | **Feature tiles** | Pick the active feature. Dot: red = empty, amber = open contour (has a gap), green = one closed loop. Small gaps auto-join on feature-switch / All features / save; a remaining gap blocks saving that feature. |
-| **Second toolbar row** | Appears for Draw/Edit/Erase. Always shows **Image view** (Brightness / Contrast, view-only); Draw also shows Join loose ends; Edit/Erase show Brush size. |
+| **Second toolbar row** | Appears for Draw/Edit/Erase. Always shows **Image view** (Brightness / Contrast, view-only); Draw and Erase show Join loose ends; Edit and Erase show Brush size. |
 | **Save active JSON** | Writes `<image>__SHAPES.json`. Broken (open) contours block the save until connected. In-progress work is kept in the browser so re-opening an image resumes it; switching images with unsaved changes asks whether to save first. |
 
 In-progress work (including half-drawn outlines) is kept in the browser, so re-opening the same image later resumes where you left off — but only **Save active JSON** produces the file for FishInspector. Switching images with unsaved changes prompts you to save first. A built-in **Help** panel explains everything, including device-specific file handling.
@@ -117,7 +117,7 @@ Converted 48/48 images (quality=95, stretched, grayscale).
 
 1. Select the feature and pick **Erase**; brush over the bad section to open a gap (the dot turns amber).
 2. Pick **Draw** and trace the correct section, starting near one loose end and finishing near the other — it welds into the line.
-3. If a small gap remains, press **Join loose ends** (Adjust row). The dot returns to green and the contour saves as one continuous loop.
+3. If a small gap remains, press **Join loose ends** (second toolbar row). The dot returns to green and the contour saves as one continuous loop.
 
 ---
 
@@ -129,6 +129,7 @@ Converted 48/48 images (quality=95, stretched, grayscale).
 | `app.js` | Application logic (vanilla JS, no dependencies). |
 | `styles.css` | Styling. |
 | `convert_to_jpg.py` | TIFF → JPG batch converter (run on a computer). |
+| `favicon-32.png`, `favicon-64.png`, `apple-touch-icon.png`, `fa_icon.png` | App icons (browser tab, home screen, and the logo shown in the app). Keep them alongside `index.html`. |
 
 ---
 

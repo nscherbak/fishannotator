@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>Fish Annotator</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -13,7 +16,7 @@
       <div class="topbar-brand">
         <button id="sidebarToggle" class="drawer-toggle" type="button" aria-label="Toggle images panel">&#9776;</button>
         <div class="brand">
-          <span class="brand-mark" aria-hidden="true"></span>
+          <img class="brand-mark" src="favicon-64.png" alt="Fish Annotator" width="34" height="34">
           <span class="brand-text">
             <span class="brand-name">Fish Annotator</span>
             <span class="brand-by">by Nikolai Scherbak, &Ouml;rebro University</span>
@@ -48,7 +51,7 @@
         </div>
         <div id="workRow2" class="work-row work-row2">
           <label class="row2-slider brush-only" title="Brush diameter (Edit / Erase)"><span>Brush</span><input id="editSize" type="range" min="1" max="33" step="1" value="8"></label>
-          <button id="joinEndsBtn" class="tool-button draw-only" type="button">Join loose ends</button>
+          <button id="joinEndsBtn" class="tool-button join-only" type="button">Join loose ends</button>
           <span class="row2-divider"></span>
           <span class="row2-group">
             <span class="row2-group-label">Image view</span>
@@ -152,10 +155,10 @@
             <li><strong>Draw</strong> &mdash; trace an outline with the pen, <em>in as many strokes as you like</em>. Each stroke is a piece; start a new stroke near the loose end of the last one and they weld together (overshoot trimmed, joint smoothed). Reposition the image between strokes and keep going all the way around; when the last piece meets the first, the loop closes and the dot turns green.</li>
             <li><strong>Edit</strong> &mdash; push an existing outline into place. A circle (the <strong>Brush</strong>) follows the pen and shoves the line <em>out of the circle, away from the brush</em> &mdash; like a disc pushing a string. Push from one side to move the line that way; approach from the <em>other</em> side to push it back. On a computer the circle follows the mouse and pushes only while a button is held; with a pen it acts only while touching.</li>
             <li><strong>Erase</strong> &mdash; a brush that <em>cuts</em> the active outline where you touch it, opening a real gap so you can redraw that part. Erasing can split the line into pieces; the feature dot turns amber until it is one closed loop again.</li>
-            <li><strong>Join loose ends</strong> (second toolbar row, during Draw) &mdash; connects any remaining open ends of the active feature by nearest distance, closing the contour. Use it when a gap is a few pixels too wide to join on its own.</li>
+            <li><strong>Join loose ends</strong> (second toolbar row, during Draw or Erase) &mdash; connects any remaining open ends of the active feature by nearest distance, closing the contour. Use it when a gap is a few pixels too wide to join on its own.</li>
             <li><strong>Clear</strong> &mdash; remove the whole active feature&rsquo;s outline at once.</li>
             <li><strong>Move &amp; zoom</strong> &mdash; on a touchscreen, <strong>two fingers</strong> move the image and <strong>pinch</strong> zooms (one finger / the pen always draws). On a computer, hold <strong>Shift</strong> and drag to move the image, use the mouse wheel or the &minus;/100%/+/Fit buttons to zoom.</li>
-            <li><strong>Second toolbar row</strong> &mdash; appears while Draw, Edit, or Erase is selected. It always shows <strong>Image view: Brightness / Contrast</strong> (with <em>reset</em>) &mdash; these change only how the image looks on screen, never the file. Draw also shows <strong>Join loose ends</strong>; Edit and Erase show the <strong>Brush</strong> size.</li>
+            <li><strong>Second toolbar row</strong> &mdash; appears while Draw, Edit, or Erase is selected. It always shows <strong>Image view: Brightness / Contrast</strong> (with <em>reset</em>) &mdash; these change only how the image looks on screen, never the file. Draw and Erase also show <strong>Join loose ends</strong>; Edit and Erase show the <strong>Brush</strong> size.</li>
             <li><strong>All features</strong> &mdash; shows every outline at once for review (editing paused). Tap a feature to resume editing it.</li>
             <li><strong>Feature tiles</strong> &mdash; choose the active feature. The dot is <span class="help-dot red"></span> <strong>red</strong> when empty, <span class="help-dot amber"></span> <strong>amber</strong> when the contour is open (has a gap), and <span class="help-dot green"></span> <strong>green</strong> when it is one closed loop. Small gaps are auto-joined when you switch feature, open All features, or save; a real gap that remains blocks saving until you connect it.</li>
             <li><strong>Undo</strong> and <strong>Save active JSON</strong>. A bright <strong>Unsaved JSON</strong> badge shows when you have changes not yet saved &mdash; save after finishing each feature. Your in-progress work (including half-drawn outlines) is kept in the browser, so re-opening the same image later resumes where you left off; but only <strong>Save active JSON</strong> produces the file for FishInspector. Switching to another image with unsaved changes asks whether to save first.</li>

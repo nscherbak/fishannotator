@@ -624,11 +624,27 @@
     }
     return points;
   }
+  // Points spaced ~step apart strictly between p and q (empty if they're close).
+  function densify(p, q, step) {
+    var d = Math.sqrt((p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y));
+    if (d <= step) return [];
+    var n = Math.floor(d / step);
+    var out = [];
+    for (var i = 1; i <= n; i += 1) {
+      var t = i / (n + 1);
+      out.push({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+    }
+    return out;
+  }
   function joinEnds(aArc, ea, bArc, eb) {
     var A = ea === 1 ? aArc.points.slice() : aArc.points.slice().reverse();
     var B = eb === 0 ? bArc.points.slice() : bArc.points.slice().reverse();
-    var merged = A.concat(B.slice(1));
-    return smoothJunction(merged, A.length - 1, 0.4, 2);
+    // Fill the gap between the two ends with points so the connecting line can
+    // be edited/erased like the rest of the contour. ~1px spacing matches
+    // FishInspector's contour density (measured median 1.0 px).
+    var bridge = densify(A[A.length - 1], B[0], 1);
+    var merged = A.concat(bridge).concat(B);
+    return smoothJunction(merged, A.length - 1 + Math.floor(bridge.length / 2), 0.35, bridge.length + 3);
   }
   function geomStitch(arcs, fid, threshold, forceClose) {
     arcs = arcs.map(function (a) { return makeArcShape(fid, a.points, a.closed); });
@@ -813,7 +829,7 @@
   function scheduleAutosave(item) {
     if (!item) return;
     var base = matchKey(item.name);
-    var record = { basename: base, shapes: serializeShapes(item), width: item.width, height: item.height, savedAt: Date.now() };
+    var record = { basename: base, shapes: serializeShapes(item), fiOriginal: item.fiOriginal || null, width: item.width, height: item.height, savedAt: Date.now() };
     savedByName[base] = record;
     window.clearTimeout(autosaveTimers[base]);
     autosaveTimers[base] = window.setTimeout(function () {
@@ -824,19 +840,28 @@
     var rec = savedByName[matchKey(item.name)] || savedByName[imageBasename(item.name)];
     if (!rec || !rec.shapes || !rec.shapes.length) return;
     item.shapes = rec.shapes.map(function (r) { return rebuildShape(r.feature, r.points, r.closed !== false); });
+    if (rec.fiOriginal) { item.fiOriginal = rec.fiOriginal; item.hadJson = true; }
   }
 
   function parseFishInspector(obj) {
     var shapes = [];
+    var nodes = {};
     features.forEach(function (feature) {
       var node = obj[feature.id];
       if (!node || !node.shape || !node.shape.x || !node.shape.y) return;
       var xs = node.shape.x, ys = node.shape.y;
       var pts = [];
       for (var i = 0; i < xs.length; i += 1) pts.push({ x: xs[i], y: ys[i] });
-      if (pts.length) shapes.push({ feature: feature.id, points: pts, closed: true });
+      if (pts.length) { shapes.push({ feature: feature.id, points: pts, closed: true }); nodes[feature.id] = node; }
     });
-    return shapes;
+    var fiOriginal = {
+      version: obj.version,
+      enabled: obj.enabled,
+      imageDimensions: obj.imageDimensions,
+      imageBackground: obj.imageBackground,
+      nodes: nodes
+    };
+    return { shapes: shapes, fiOriginal: fiOriginal };
   }
 
   function findImageForKey(key) {
@@ -844,12 +869,13 @@
   }
 
   // Put a parsed annotation set onto a specific image and persist it.
-  function attachAnnotations(item, shapes) {
+  function attachAnnotations(item, shapes, fiOriginal) {
     item.shapes = shapes.map(function (r) { return rebuildShape(r.feature, r.points, r.closed !== false); });
     item.dirty = false;   // freshly loaded from a JSON file: nothing to save yet
     item.hadJson = true;  // has annotations from a JSON -> flip disabled
+    if (fiOriginal) item.fiOriginal = fiOriginal;   // preserve original metadata for round-trip
     var key = matchKey(item.name);
-    var record = { basename: key, shapes: serializeShapes(item), width: item.width, height: item.height, savedAt: Date.now() };
+    var record = { basename: key, shapes: serializeShapes(item), fiOriginal: item.fiOriginal || null, width: item.width, height: item.height, savedAt: Date.now() };
     savedByName[key] = record;
     idbPut(record).catch(function () {});
     if (item.id === state.activeImageId) { draw(); updateDirtyBadge(); }
@@ -862,12 +888,13 @@
       var parsed = null;
       try {
         var obj = JSON.parse(await jsonFiles[i].text());
-        parsed = { key: matchKey(jsonFiles[i].name), shapes: parseFishInspector(obj), name: jsonFiles[i].name };
+        var pr = parseFishInspector(obj);
+        parsed = { key: matchKey(jsonFiles[i].name), shapes: pr.shapes, fiOriginal: pr.fiOriginal, name: jsonFiles[i].name };
       } catch (e) { failed += 1; continue; }
       var item = findImageForKey(parsed.key);
-      if (item) { attachAnnotations(item, parsed.shapes); matched.push(item); }
+      if (item) { attachAnnotations(item, parsed.shapes, parsed.fiOriginal); matched.push(item); }
       else {
-        savedByName[parsed.key] = { basename: parsed.key, shapes: parsed.shapes, savedAt: Date.now() };
+        savedByName[parsed.key] = { basename: parsed.key, shapes: parsed.shapes, fiOriginal: parsed.fiOriginal, savedAt: Date.now() };
         idbPut(savedByName[parsed.key]).catch(function () {});
         unmatched.push(parsed);
       }
@@ -954,6 +981,7 @@
       file: file,
       fileHandle: handle || null,
       hadJson: false,
+      fiOriginal: null,
       width: 0,
       height: 0,
       element: null,
@@ -995,7 +1023,7 @@
     // Fallback: a lone unmatched JSON attaches to the image you're viewing
     // (covers "image + its JSON together" and "just the JSON onto this image").
     if (act && !act.shapes.length && res.unmatched.length === 1 && candidates.length <= 1) {
-      attachAnnotations(act, res.unmatched[0].shapes);
+      attachAnnotations(act, res.unmatched[0].shapes, res.unmatched[0].fiOriginal);
       res.matched.push(act);
       res.unmatched = [];
       renderLists();
@@ -1363,27 +1391,44 @@
     };
   }
 
+  // True if a feature's current contour is unchanged from its loaded original.
+  function unchangedFromOriginal(item, fid, arc) {
+    var orig = item.fiOriginal && item.fiOriginal.nodes && item.fiOriginal.nodes[fid];
+    if (!orig || !orig.shape || !orig.shape.x) return false;
+    var xs = orig.shape.x, ys = orig.shape.y;
+    if (arc.points.length !== xs.length) return false;
+    for (var i = 0; i < xs.length; i += 1) {
+      if (round1(arc.points[i].x) !== xs[i] || round1(arc.points[i].y) !== ys[i]) return false;
+    }
+    return true;
+  }
+
   function buildFishInspector(item) {
     var gray = getGrayscale(item);
+    var orig = item.fiOriginal;
     var out = {
-      version: FI_VERSION,
-      enabled: 1,
-      imageDimensions: [item.width, item.height, 3]
+      version: orig && orig.version != null ? orig.version : FI_VERSION,
+      enabled: orig && orig.enabled != null ? orig.enabled : 1,
+      imageDimensions: orig && orig.imageDimensions ? orig.imageDimensions : [item.width, item.height, 3]
     };
     // Emit features in canonical order, stitching each into one contour.
     features.forEach(function (feature) {
       var arc = stitchedFeatureArc(item, feature.id);
       if (!arc) return;   // empty, or broken (handled by brokenFeatures on save)
-      var xArr = arc.points.map(function (p) { return round1(p.x); });
-      var yArr = arc.points.map(function (p) { return round1(p.y); });
+      var origNode = orig && orig.nodes ? orig.nodes[feature.id] : null;
+      if (origNode && unchangedFromOriginal(item, feature.id, arc)) {
+        out[feature.id] = origNode;   // untouched: preserve verbatim (parameter, regionprops, etc.)
+        return;
+      }
       out[feature.id] = {
-        mode: "manual",
-        parameter: featureParameters[feature.id] || { disksize_CloseOpen: 0, min_peak_width: 0, contour_smoothing: 0.9 },
-        shape: { name: "fineContour", x: xArr, y: yArr },
+        mode: origNode && origNode.mode ? origNode.mode : "manual",
+        parameter: origNode && origNode.parameter ? origNode.parameter
+          : (featureParameters[feature.id] || { disksize_CloseOpen: 0, min_peak_width: 0, contour_smoothing: 0.9 }),
+        shape: { name: "fineContour", x: arc.points.map(function (p) { return round1(p.x); }), y: arc.points.map(function (p) { return round1(p.y); }) },
         regionprops: computeRegionProps(arc.points, gray)
       };
     });
-    out.imageBackground = computeBackground(item, gray);
+    out.imageBackground = orig && orig.imageBackground ? orig.imageBackground : computeBackground(item, gray);
     return out;
   }
 
@@ -1517,7 +1562,7 @@
     var editing = !state.showAll && (state.tool === "draw" || state.tool === "edit" || state.tool === "erase");
     appShell.classList.toggle("show-row2", editing);
     appShell.classList.toggle("tool-brush", editing && (state.tool === "edit" || state.tool === "erase"));
-    appShell.classList.toggle("tool-draw", editing && state.tool === "draw");
+    appShell.classList.toggle("tool-join", editing && (state.tool === "draw" || state.tool === "erase"));
   }
 
   function setTool(tool) {
